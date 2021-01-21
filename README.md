@@ -29,9 +29,9 @@ JARVICE-HPC is built using GoLang 1.14
 docker run -ti --rm -v "$PWD":/usr/src/jarvice-hpc \
     -w /usr/src/jarvice-hpc \
     -e GOOS=darwin golang:1.14 \
-    /bin/bash -c "mkdir -p /go/src/jarvice.io" \
-    " && ln -s /usr/src/jarvice-hpc /go/src/jarvice.io" \
-    " && go build -v -o jarvice <sge|slurm>.go"
+    /bin/bash -c "mkdir -p /go/src/jarvice.io \
+    && ln -s /usr/src/jarvice-hpc /go/src/jarvice.io \
+    && go build -v -o jarvice <sge|slurm>.go"
 ```
 
 ### Installing SGE plugin for JARVICE-HPC
