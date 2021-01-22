@@ -1,18 +1,21 @@
-package core
+package jarvice
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
+
+	"github.com/jessevdk/go-flags"
 )
 
 const (
@@ -84,6 +87,13 @@ type JarviceCluster struct {
 	Endpoint string       `json:"jarvice_endpoint"`
 	Vault    string       `json:"jarvice_vault"`
 	Creds    JarviceCreds `json:"jarvice_user"`
+}
+
+func (c JarviceCluster) GetUrlCreds() url.Values {
+	values := url.Values{}
+	values.Add("username", c.Creds.Username)
+	values.Add("apikey", c.Creds.Apikey)
+	return values
 }
 
 type JarviceCreds struct {
@@ -160,30 +170,10 @@ type JarviceJob struct {
 type JarviceJobs = map[int]JarviceJob
 
 type JarviceQueue struct {
-	Name                string `json:"name"`
-	App                 string `json:"app"`
-	DefaultMachine      string `json:"machine"`
-	DefaultMachineScale int    `json:"size"`
-}
-
-// Subcommands for 'jarvice' CLI command
-func Jarvice(args []string) error {
-	if len(args) < 1 {
-		fmt.Println("Usage: jarvice COMMAND [ARG...]")
-		fmt.Println("Commands:")
-		fmt.Println("\tlogin   Setup JARVICE login credentials")
-		fmt.Println("\tvault   Set JARVICE vault")
-		return nil
-	}
-	switch subCommand := args[0]; subCommand {
-	case "login":
-		return jarviceHpcLogin(args[1:])
-	case "vault":
-		return jarviceHpcVault(args[1:])
-	default:
-		fmt.Println("jarvice: unknown command")
-	}
-	return nil
+	Name           string `json:"name"`
+	App            string `json:"app"`
+	DefaultMachine string `json:"machine"`
+	MachineScale   int    `json:"size"`
 }
 
 // Submit job request to JARVICE API
@@ -232,89 +222,92 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	return jarviceResponse, nil
 }
 
-func jarviceHpcLogin(args []string) (err error) {
-	flags := flag.NewFlagSet("login", flag.ContinueOnError)
-
-	endpoint := flags.String("endpoint", "", "JARVICE API endpoint")
-	username := flags.String("username", "", "JARVICE username")
-	apikey := flags.String("apikey", "", "JARVICE apikey")
-	cluster := flags.String("cluster", "default", "JARVICE cluster label")
-	vault := flags.String("vault", "ephemeral", "default JARVICE vault")
-
-	if flags.Parse(args) != nil {
-		err = errors.New("jarvice: cannot process arguments")
-		return
-	}
-
-	if len(*endpoint) < 1 || len(*username) < 1 || len(*apikey) < 1 {
-		flags.PrintDefaults()
-		return
-	}
-
-	config := make(JarviceConfig)
-	config, _ = ReadJarviceConfig()
-	config[*cluster] = JarviceCluster{
-		Endpoint: *endpoint,
-		Vault:    *vault,
+func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
+	config, _ := ReadJarviceConfig()
+	config[cluster] = JarviceCluster{
+		Endpoint: endpoint,
+		Vault:    vault,
 		Creds: JarviceCreds{
-			Username: *username,
-			Apikey:   *apikey,
+			Username: username,
+			Apikey:   apikey,
 		},
 	}
-	if !testJarviceEndpoint(*cluster, config) {
+	if !testJarviceEndpoint(cluster, config) {
 		err = errors.New("jarvice: JARVICE endpoint not live")
 		return
 	}
-	if !testJarviceCreds(*cluster, config) {
+	if !testJarviceCreds(cluster, config) {
 		err = errors.New("jarvice: unable to validate JARVICE credentials")
 		return
 	}
 	err = WriteJarviceConfig(config)
+	// set config TARGET (best effort)
+	WriteJarviceConfigTarget(cluster)
 	return
+}
+
+func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
+	u, _ := url.ParseRequestURI(endpoint)
+	u.Path = path.Clean(u.Path + "/jarvice/" + api)
+	u.RawQuery = args.Encode()
+	if resp, err := http.Get(u.String()); err != nil {
+		return nil, err
+	} else {
+		defer resp.Body.Close()
+		if body, err := ioutil.ReadAll(resp.Body); err != nil {
+			return nil, errors.New("HTTP IO error")
+		} else {
+			if resp.StatusCode != http.StatusOK {
+				respMap := map[string]string{}
+				json.Unmarshal(body, &respMap)
+				errMsg := ""
+				if msg, ok := respMap["error"]; ok {
+					errMsg = msg
+				}
+				return nil, errors.New("API req /jarvice/" + api + ": " + errMsg)
+			} else {
+				return body, nil
+			}
+		}
+	}
 }
 
 func testJarviceCreds(cluster string, config JarviceConfig) bool {
 	// Test credential using JARVICE API endpoint that requires authorization
-	resp, err := http.Get(config[cluster].Endpoint + "/jarvice/machines" +
-		"?username=" + config[cluster].Creds.Username +
-		"&apikey=" + config[cluster].Creds.Apikey)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if myCluster, ok := config[cluster]; ok {
+		if _, err := ApiReq(myCluster.Endpoint, "machines", myCluster.GetUrlCreds()); err == nil {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
 func testJarviceEndpoint(cluster string, config JarviceConfig) bool {
-	resp, err := http.Get(config[cluster].Endpoint + "/jarvice/live")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if myCluster, ok := config[cluster]; ok {
+		if _, err := ApiReq(myCluster.Endpoint, "live", url.Values{}); err == nil {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
-func jarviceHpcVault(args []string) error {
-	flags := flag.NewFlagSet("vault", flag.ContinueOnError)
-
-	cluster := flags.String("cluster", "default", "JARVICE cluster label")
-	vault := flags.String("vault", "ephemeral", "JARVICE vault")
-
-	if flags.Parse(args) != nil {
-		return errors.New("vault: cannot process arguments")
-	}
+func HpcVault(vault string) (err error) {
 
 	config, err := ReadJarviceConfig()
 	if err != nil {
 		return errors.New("vault: config not found. Try login first")
 	}
+	cluster := ReadJarviceConfigTarget()
+	if myCluster, ok := config[cluster]; !ok {
+		return errors.New("vault: config not found")
+	} else {
+		myCluster.Vault = vault
+		config[cluster] = myCluster
 
-	myCluster := config[*cluster]
-	myCluster.Vault = *vault
-	config[*cluster] = myCluster
-
-	if err := WriteJarviceConfig(config); err != nil {
-		return errors.New("vault: unable to write config file")
+		if err := WriteJarviceConfig(config); err != nil {
+			return errors.New("vault: unable to write config file")
+		}
 	}
-
 	return nil
 }
 
@@ -346,6 +339,35 @@ func getJarviceConfigPath() string {
 		return JarviceHpcConfigFilename
 	}
 	return backupPath + JarviceHpcConfigFilename
+}
+
+func WriteJarviceConfigTarget(target string) error {
+	configPath := path.Dir(getJarviceConfigPath())
+	configFile := configPath + "/TARGET"
+	// Ensure config file uses proper permissions
+	// TODO: replace with perms check/error?
+	os.Chmod(configFile, JarviceHpcConfigFilePerms)
+	// XXX
+	err := ioutil.WriteFile(configFile, []byte(target), JarviceHpcConfigFilePerms)
+	return err
+}
+
+func ReadJarviceConfigTarget() string {
+	// Best effort (default: "default")
+	defaultTarget := "default"
+	configPath := path.Dir(getJarviceConfigPath())
+	filename := configPath + "/TARGET"
+	if !fileExist(filename) {
+		return defaultTarget
+	}
+	jsonFile, err := os.Open(filename)
+	defer jsonFile.Close()
+	if err != nil {
+		return defaultTarget
+	}
+	bytes, _ := ioutil.ReadAll(jsonFile)
+
+	return string(bytes)
 }
 
 func WriteJarviceConfig(config JarviceConfig) error {
@@ -457,4 +479,62 @@ func GetOutboundIP() string {
 	localAddr := conn.LocalAddr().String()
 	parts := strings.Split(localAddr, ":")
 	return parts[0]
+}
+
+func GetClusterConfig() (cluster JarviceCluster, err error) {
+	config, err := ReadJarviceConfig()
+	if err != nil {
+		return JarviceCluster{}, errors.New("cannot read JARVICE config")
+	}
+	clusterName := ReadJarviceConfigTarget()
+	if val, ok := config[clusterName]; ok {
+		return val, nil
+	}
+	return JarviceCluster{}, errors.New("cannot find credentials for " + clusterName)
+}
+
+func CreateHelpErr() error {
+	err := flags.Error{
+		Type:    flags.ErrHelp,
+		Message: "show help message",
+	}
+	return &err
+}
+
+func PreprocessArgs(args []string) ([]string, error) {
+	pArgs := args
+	// strip path for arg 0
+	pArgs[0] = filepath.Base(args[0])
+	// Process args based on command
+	// long flafs must use '--' for go-flags (prefix '-' to fix single '-' SGE long flags)
+	for index, val := range pArgs {
+		if strings.HasPrefix(val, "-") && len(val[1:]) > 1 && val[1] != '-' {
+			pArgs[index] = "-" + val
+		}
+	}
+	switch pArgs[0] {
+	case "qsub":
+		// preprocess -pe <pe-name> <pe-int>
+		// remove pe name
+		for index, val := range pArgs {
+			if val == "-pe" || val == "--pe" {
+				if len(pArgs) > index+2 {
+					pArgs = append(pArgs[:index+1], pArgs[index+2:]...)
+				} else {
+					return nil, errors.New("unable to preprocess qsub parallel environment\n" +
+						"-pe <pe-name> <int>")
+				}
+			}
+		}
+	default:
+		// do nothing
+	}
+	return pArgs, nil
+}
+
+func IsYes(str string) bool {
+	if str == "y" || str == "Y" || str == "yes" || str == "Yes" {
+		return true
+	}
+	return false
 }
