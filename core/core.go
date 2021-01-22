@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/jessevdk/go-flags"
@@ -169,10 +170,10 @@ type JarviceJob struct {
 type JarviceJobs = map[int]JarviceJob
 
 type JarviceQueue struct {
-	Name                string `json:"name"`
-	App                 string `json:"app"`
-	DefaultMachine      string `json:"machine"`
-	DefaultMachineScale int    `json:"size"`
+	Name           string `json:"name"`
+	App            string `json:"app"`
+	DefaultMachine string `json:"machine"`
+	MachineScale   int    `json:"size"`
 }
 
 // Submit job request to JARVICE API
@@ -251,12 +252,10 @@ func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
 	u.RawQuery = args.Encode()
 	if resp, err := http.Get(u.String()); err != nil {
 		return nil, err
-	} else if resp.StatusCode != http.StatusOK {
-		return nil, errors.New("api resp")
 	} else {
 		defer resp.Body.Close()
 		if body, err := ioutil.ReadAll(resp.Body); err != nil {
-			return nil, err
+			return nil, errors.New("HTTP IO error")
 		} else {
 			if resp.StatusCode != http.StatusOK {
 				respMap := map[string]string{}
@@ -265,7 +264,7 @@ func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
 				if msg, ok := respMap["error"]; ok {
 					errMsg = msg
 				}
-				return nil, errors.New(api + " resp: " + errMsg)
+				return nil, errors.New("API req /jarvice/" + api + ": " + errMsg)
 			} else {
 				return body, nil
 			}
@@ -500,4 +499,42 @@ func CreateHelpErr() error {
 		Message: "show help message",
 	}
 	return &err
+}
+
+func PreprocessArgs(args []string) ([]string, error) {
+	pArgs := args
+	// strip path for arg 0
+	pArgs[0] = filepath.Base(args[0])
+	// Process args based on command
+	// long flafs must use '--' for go-flags (prefix '-' to fix single '-' SGE long flags)
+	for index, val := range pArgs {
+		if strings.HasPrefix(val, "-") && len(val[1:]) > 1 && val[1] != '-' {
+			pArgs[index] = "-" + val
+		}
+	}
+	switch pArgs[0] {
+	case "qsub":
+		// preprocess -pe <pe-name> <pe-int>
+		// remove pe name
+		for index, val := range pArgs {
+			if val == "-pe" || val == "--pe" {
+				if len(pArgs) > index+2 {
+					pArgs = append(pArgs[:index+1], pArgs[index+2:]...)
+				} else {
+					return nil, errors.New("unable to preprocess qsub parallel environment\n" +
+						"-pe <pe-name> <int>")
+				}
+			}
+		}
+	default:
+		// do nothing
+	}
+	return pArgs, nil
+}
+
+func IsYes(str string) bool {
+	if str == "y" || str == "Y" || str == "yes" || str == "Yes" {
+		return true
+	}
+	return false
 }

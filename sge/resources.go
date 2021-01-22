@@ -2,7 +2,6 @@ package sge
 
 import (
 	"errors"
-	"math"
 	"regexp"
 	"strconv"
 )
@@ -12,34 +11,6 @@ const (
 	mcRamName   = "mc_ram"
 	mcGpusName  = "mc_gpus"
 )
-
-func decodeMemReq(req string) (mem int, err error) {
-	re := regexp.MustCompile("^[0-9]+")
-	te := regexp.MustCompile("[KMGT]$")
-	if match := re.FindString(req); len(match) > 0 {
-		if base, perr := strconv.ParseInt(match, 10, 64); perr == nil {
-			if mag := te.FindString(req); len(mag) > 0 {
-				switch mag {
-				case "K":
-					mem = int(base) * 1024
-				case "M":
-					mem = int(base) * 1024 * 1024
-				case "G":
-					mem = int(base) * 1024 * 1024 * 1024
-				case "T":
-					mem = int(base) * 1024 * 1024 * 1024 * 1024
-				}
-
-			} else {
-				mem = int(base) * 1024 * 1024
-			}
-			mem = int(math.Ceil(float64(mem) / float64((1024 * 1024 * 1024))))
-			return
-		}
-	}
-	err = errors.New("Invalid mem request")
-	return
-}
 
 func decodeGpusReq(req string) (gpus int, err error) {
 	re := regexp.MustCompile("^[a-zA-z0-9]+:")
