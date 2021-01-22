@@ -1,17 +1,17 @@
-package core
+package jarvice
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -84,6 +84,13 @@ type JarviceCluster struct {
 	Endpoint string       `json:"jarvice_endpoint"`
 	Vault    string       `json:"jarvice_vault"`
 	Creds    JarviceCreds `json:"jarvice_user"`
+}
+
+func (c JarviceCluster) GetUrlCreds() url.Values {
+	values := url.Values{}
+	values.Add("username", c.Creds.Username)
+	values.Add("apikey", c.Creds.Apikey)
+	return values
 }
 
 type JarviceCreds struct {
@@ -166,26 +173,6 @@ type JarviceQueue struct {
 	DefaultMachineScale int    `json:"size"`
 }
 
-// Subcommands for 'jarvice' CLI command
-func Jarvice(args []string) error {
-	if len(args) < 1 {
-		fmt.Println("Usage: jarvice COMMAND [ARG...]")
-		fmt.Println("Commands:")
-		fmt.Println("\tlogin   Setup JARVICE login credentials")
-		fmt.Println("\tvault   Set JARVICE vault")
-		return nil
-	}
-	switch subCommand := args[0]; subCommand {
-	case "login":
-		return jarviceHpcLogin(args[1:])
-	case "vault":
-		return jarviceHpcVault(args[1:])
-	default:
-		fmt.Println("jarvice: unknown command")
-	}
-	return nil
-}
-
 // Submit job request to JARVICE API
 func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
 
@@ -232,40 +219,22 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	return jarviceResponse, nil
 }
 
-func jarviceHpcLogin(args []string) (err error) {
-	flags := flag.NewFlagSet("login", flag.ContinueOnError)
+func HpcLogin(endpoint, username, apikey, cluster, vault string) (err error) {
 
-	endpoint := flags.String("endpoint", "", "JARVICE API endpoint")
-	username := flags.String("username", "", "JARVICE username")
-	apikey := flags.String("apikey", "", "JARVICE apikey")
-	cluster := flags.String("cluster", "default", "JARVICE cluster label")
-	vault := flags.String("vault", "ephemeral", "default JARVICE vault")
-
-	if flags.Parse(args) != nil {
-		err = errors.New("jarvice: cannot process arguments")
-		return
-	}
-
-	if len(*endpoint) < 1 || len(*username) < 1 || len(*apikey) < 1 {
-		flags.PrintDefaults()
-		return
-	}
-
-	config := make(JarviceConfig)
-	config, _ = ReadJarviceConfig()
-	config[*cluster] = JarviceCluster{
-		Endpoint: *endpoint,
-		Vault:    *vault,
+	config, _ := ReadJarviceConfig()
+	config[cluster] = JarviceCluster{
+		Endpoint: endpoint,
+		Vault:    vault,
 		Creds: JarviceCreds{
-			Username: *username,
-			Apikey:   *apikey,
+			Username: username,
+			Apikey:   apikey,
 		},
 	}
-	if !testJarviceEndpoint(*cluster, config) {
+	if !testJarviceEndpoint(cluster, config) {
 		err = errors.New("jarvice: JARVICE endpoint not live")
 		return
 	}
-	if !testJarviceCreds(*cluster, config) {
+	if !testJarviceCreds(cluster, config) {
 		err = errors.New("jarvice: unable to validate JARVICE credentials")
 		return
 	}
@@ -273,48 +242,57 @@ func jarviceHpcLogin(args []string) (err error) {
 	return
 }
 
+func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
+	u, _ := url.ParseRequestURI(endpoint)
+	u.Path = path.Clean(u.Path + "/jarvice/" + api)
+	u.RawQuery = args.Encode()
+	if resp, err := http.Get(u.String()); err != nil || resp.StatusCode != http.StatusOK {
+		return nil, err
+	} else {
+		defer resp.Body.Close()
+		if body, err := ioutil.ReadAll(resp.Body); err != nil {
+			return nil, err
+		} else {
+			return body, nil
+		}
+	}
+}
+
 func testJarviceCreds(cluster string, config JarviceConfig) bool {
 	// Test credential using JARVICE API endpoint that requires authorization
-	resp, err := http.Get(config[cluster].Endpoint + "/jarvice/machines" +
-		"?username=" + config[cluster].Creds.Username +
-		"&apikey=" + config[cluster].Creds.Apikey)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if myCluster, ok := config[cluster]; ok {
+		if _, err := ApiReq(myCluster.Endpoint, "machines", myCluster.GetUrlCreds()); err == nil {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
 func testJarviceEndpoint(cluster string, config JarviceConfig) bool {
-	resp, err := http.Get(config[cluster].Endpoint + "/jarvice/live")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if myCluster, ok := config[cluster]; ok {
+		if _, err := ApiReq(myCluster.Endpoint, "live", url.Values{}); err == nil {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
-func jarviceHpcVault(args []string) error {
-	flags := flag.NewFlagSet("vault", flag.ContinueOnError)
-
-	cluster := flags.String("cluster", "default", "JARVICE cluster label")
-	vault := flags.String("vault", "ephemeral", "JARVICE vault")
-
-	if flags.Parse(args) != nil {
-		return errors.New("vault: cannot process arguments")
-	}
+func HpcVault(cluster, vault string) (err error) {
 
 	config, err := ReadJarviceConfig()
 	if err != nil {
 		return errors.New("vault: config not found. Try login first")
 	}
+	if myCluster, ok := config[cluster]; !ok {
+		return errors.New("vault: config not found")
+	} else {
+		myCluster.Vault = vault
+		config[cluster] = myCluster
 
-	myCluster := config[*cluster]
-	myCluster.Vault = *vault
-	config[*cluster] = myCluster
-
-	if err := WriteJarviceConfig(config); err != nil {
-		return errors.New("vault: unable to write config file")
+		if err := WriteJarviceConfig(config); err != nil {
+			return errors.New("vault: unable to write config file")
+		}
 	}
-
 	return nil
 }
 
@@ -346,6 +324,33 @@ func getJarviceConfigPath() string {
 		return JarviceHpcConfigFilename
 	}
 	return backupPath + JarviceHpcConfigFilename
+}
+
+func WriteJarviceConfigTarget(target string) error {
+	configPath := path.Dir(getJarviceConfigPath())
+	configFile := configPath + "/TARGET"
+	// Ensure config file uses proper permissions
+	// TODO: replace with perms check/error?
+	os.Chmod(configFile, JarviceHpcConfigFilePerms)
+	// XXX
+	err := ioutil.WriteFile(configFile, []byte(target), JarviceHpcConfigFilePerms)
+	return err
+}
+
+func ReadJarviceConfigTarget() (string, error) {
+	configPath := path.Dir(getJarviceConfigPath())
+	filename := configPath + "/TARGET"
+	if !fileExist(filename) {
+		return "", errors.New("cannot read JARVICE config TARGET")
+	}
+	jsonFile, err := os.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer jsonFile.Close()
+	bytes, _ := ioutil.ReadAll(jsonFile)
+
+	return string(bytes), nil
 }
 
 func WriteJarviceConfig(config JarviceConfig) error {
