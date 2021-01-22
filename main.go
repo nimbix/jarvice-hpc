@@ -40,6 +40,7 @@ func main() {
 			}
 			os.Exit(1)
 		default:
+			fmt.Println(flagsErr.Error())
 			os.Exit(1)
 		}
 	}

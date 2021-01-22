@@ -10,33 +10,22 @@ import (
 )
 
 type QConfCommand struct {
-	Cluster string `short:"c" long:"cluster" description:"cluster name" default:"default"`
+	Help bool `short:"h" long:"help" description:"Show this help message"`
 }
 
 var qConfCommand QConfCommand
 
 func (x *QConfCommand) Execute(args []string) error {
-	config, err := jarvice.ReadJarviceConfig()
+	if x.Help {
+		return jarvice.CreateHelpErr()
+	}
+	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return errors.New("qconf: cannot read JARVICE config")
+		return err
 	}
-	clusterName := ""
-	if !parser.Command.Active.FindOptionByLongName("cluster").IsSetDefault() {
-		clusterName = x.Cluster
-	} else {
-		if val, err := jarvice.ReadJarviceConfigTarget(); err != nil {
-			clusterName = x.Cluster
-		} else {
-			clusterName = val
-		}
-	}
-	cluster := jarvice.JarviceCluster{}
-	if val, ok := config[clusterName]; ok {
-		cluster = val
-	} else {
-		return errors.New("qconf: cannot find credentials for " + clusterName)
-	}
-	if resp, err := jarvice.ApiReq(cluster.Endpoint, "queues", cluster.GetUrlCreds()); err == nil {
+	if resp, err := jarvice.ApiReq(cluster.Endpoint,
+		"queues",
+		cluster.GetUrlCreds()); err == nil {
 
 		jarviceQueues := []string{}
 		if err := json.Unmarshal([]byte(resp), &jarviceQueues); err != nil {

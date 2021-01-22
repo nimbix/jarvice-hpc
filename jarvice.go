@@ -4,13 +4,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jessevdk/go-flags"
 	jarvice "jarvice.io/core"
 )
 
 type JarviceConfigFlags struct {
-	Help    bool   `short:"h" long:"help" description:"Show this help message"`
-	Cluster string `short:"c" long:"cluster" description:"cluster name" default:"default"`
+	Help bool `short:"h" long:"help" description:"Show this help message"`
 }
 
 type JarviceCommand struct {
@@ -21,13 +19,14 @@ type JarviceCommand struct {
 }
 
 type JarviceLoginCommand struct {
-	Config   JarviceConfigFlags `group:"Configuration Options" hidden:"true"`
-	Username string             `short:"u" long:"username" description:"JARVICE username"`
-	Apikey   string             `short:"k" long:"apikey" description:"JARVICE apikey"`
-	Vault    string             `short:"v" long:"vault" description:"JARVICE vault" default:"ephemeral"`
-	Args     struct {
+	Config JarviceConfigFlags `group:"Configuration Options" hidden:"true"`
+	Vault  string             `short:"v" long:"vault" description:"JARVICE vault" default:"ephemeral"`
+	Args   struct {
 		Endpoint string `postitional-arg-name:"endpoint" description:"JARVICE API endpoint"`
-	} `positional-args:"true" required:"1"`
+		Cluster  string `positional-arg-name:"cluster" description:"JARVICE cluster"`
+		Username string `positional-arg-name:"username "description:"JARVICE username"`
+		Apikey   string `positinal-arg-name:"apikey" description:"JARVICE apikey"`
+	} `positional-args:"true" required:"4"`
 }
 
 type JarviceVaultCommand struct {
@@ -38,55 +37,57 @@ type JarviceVaultCommand struct {
 type JarviceClusterCommand struct {
 	Config JarviceConfigFlags `group:"Configuration Options" hidden:"true"`
 	List   bool               `short:"l" long:"list" description:"list available JARVICE configurations"`
+	Args   struct {
+		Cluster string `positional-arg-name:"cluster" description:"JARVICE cluster"`
+	} `positional-args:"true"`
 }
 
 var jarviceCommand JarviceCommand
 
-func createHelpErr() error {
-	err := flags.Error{
-		Type:    flags.ErrHelp,
-		Message: "show help message",
-	}
-	return &err
-}
-
 func (x *JarviceCommand) Execute(args []string) error {
 	if x.Config.Help {
-		return createHelpErr()
+		return jarvice.CreateHelpErr()
 	}
 	return nil
 }
 
 func (x *JarviceLoginCommand) Execute(args []string) error {
 	if x.Config.Help {
-		return createHelpErr()
+		return jarvice.CreateHelpErr()
 	}
-	return jarvice.HpcLogin(x.Args.Endpoint, x.Username, x.Apikey,
-		x.Config.Cluster, x.Vault)
+	return jarvice.HpcLogin(x.Args.Endpoint, x.Args.Cluster, x.Args.Username,
+		x.Args.Apikey, x.Vault)
 }
 
 func (x *JarviceVaultCommand) Execute(args []string) error {
 	if x.Config.Help {
-		return createHelpErr()
+		return jarvice.CreateHelpErr()
 	}
-	return jarvice.HpcVault(x.Config.Cluster, x.Vault)
+	return jarvice.HpcVault(x.Vault)
 }
 
 func (x *JarviceClusterCommand) Execute(args []string) error {
 	if x.Config.Help {
-		return createHelpErr()
+		return jarvice.CreateHelpErr()
 	}
 	config, _ := jarvice.ReadJarviceConfig()
 	if x.List {
+		if len(config) == 0 {
+			return errors.New("No clusters found. Setup config using: jarvice login")
+		}
 		for key, _ := range config {
 			fmt.Println(key)
 		}
 		return nil
 	}
-	if _, ok := config[x.Config.Cluster]; ok {
-		return jarvice.WriteJarviceConfigTarget(x.Config.Cluster)
+	if len(x.Args.Cluster) == 0 {
+		return errors.New("Cluster argument missing")
+	}
+	if _, ok := config[x.Args.Cluster]; ok {
+		return jarvice.WriteJarviceConfigTarget(x.Args.Cluster)
 	} else {
-		return errors.New(x.Config.Cluster + " configuration does not exits")
+		return errors.New(x.Args.Cluster + " configuration does not exits." +
+			" Setup config using: jarvice login")
 	}
 }
 

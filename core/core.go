@@ -13,6 +13,8 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/jessevdk/go-flags"
 )
 
 const (
@@ -219,8 +221,7 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	return jarviceResponse, nil
 }
 
-func HpcLogin(endpoint, username, apikey, cluster, vault string) (err error) {
-
+func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
 	config, _ := ReadJarviceConfig()
 	config[cluster] = JarviceCluster{
 		Endpoint: endpoint,
@@ -239,6 +240,8 @@ func HpcLogin(endpoint, username, apikey, cluster, vault string) (err error) {
 		return
 	}
 	err = WriteJarviceConfig(config)
+	// set config TARGET (best effort)
+	WriteJarviceConfigTarget(cluster)
 	return
 }
 
@@ -246,14 +249,26 @@ func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
 	u, _ := url.ParseRequestURI(endpoint)
 	u.Path = path.Clean(u.Path + "/jarvice/" + api)
 	u.RawQuery = args.Encode()
-	if resp, err := http.Get(u.String()); err != nil || resp.StatusCode != http.StatusOK {
+	if resp, err := http.Get(u.String()); err != nil {
 		return nil, err
+	} else if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("api resp")
 	} else {
 		defer resp.Body.Close()
 		if body, err := ioutil.ReadAll(resp.Body); err != nil {
 			return nil, err
 		} else {
-			return body, nil
+			if resp.StatusCode != http.StatusOK {
+				respMap := map[string]string{}
+				json.Unmarshal(body, &respMap)
+				errMsg := ""
+				if msg, ok := respMap["error"]; ok {
+					errMsg = msg
+				}
+				return nil, errors.New(api + " resp: " + errMsg)
+			} else {
+				return body, nil
+			}
 		}
 	}
 }
@@ -277,12 +292,13 @@ func testJarviceEndpoint(cluster string, config JarviceConfig) bool {
 	return false
 }
 
-func HpcVault(cluster, vault string) (err error) {
+func HpcVault(vault string) (err error) {
 
 	config, err := ReadJarviceConfig()
 	if err != nil {
 		return errors.New("vault: config not found. Try login first")
 	}
+	cluster := ReadJarviceConfigTarget()
 	if myCluster, ok := config[cluster]; !ok {
 		return errors.New("vault: config not found")
 	} else {
@@ -337,20 +353,22 @@ func WriteJarviceConfigTarget(target string) error {
 	return err
 }
 
-func ReadJarviceConfigTarget() (string, error) {
+func ReadJarviceConfigTarget() string {
+	// Best effort (default: "default")
+	defaultTarget := "default"
 	configPath := path.Dir(getJarviceConfigPath())
 	filename := configPath + "/TARGET"
 	if !fileExist(filename) {
-		return "", errors.New("cannot read JARVICE config TARGET")
+		return defaultTarget
 	}
 	jsonFile, err := os.Open(filename)
-	if err != nil {
-		return "", err
-	}
 	defer jsonFile.Close()
+	if err != nil {
+		return defaultTarget
+	}
 	bytes, _ := ioutil.ReadAll(jsonFile)
 
-	return string(bytes), nil
+	return string(bytes)
 }
 
 func WriteJarviceConfig(config JarviceConfig) error {
@@ -462,4 +480,24 @@ func GetOutboundIP() string {
 	localAddr := conn.LocalAddr().String()
 	parts := strings.Split(localAddr, ":")
 	return parts[0]
+}
+
+func GetClusterConfig() (cluster JarviceCluster, err error) {
+	config, err := ReadJarviceConfig()
+	if err != nil {
+		return JarviceCluster{}, errors.New("cannot read JARVICE config")
+	}
+	clusterName := ReadJarviceConfigTarget()
+	if val, ok := config[clusterName]; ok {
+		return val, nil
+	}
+	return JarviceCluster{}, errors.New("cannot find credentials for " + clusterName)
+}
+
+func CreateHelpErr() error {
+	err := flags.Error{
+		Type:    flags.ErrHelp,
+		Message: "show help message",
+	}
+	return &err
 }
