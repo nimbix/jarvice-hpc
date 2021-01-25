@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jessevdk/go-flags"
 	jarvice "jarvice.io/core"
 )
 
@@ -32,6 +33,10 @@ type QSubCommand struct {
 }
 
 var qSubCommand QSubCommand
+var jobScriptParser = flags.NewNamedParser(jarvice.JobScriptArg,
+	flags.PassDoubleDash|flags.IgnoreUnknown)
+
+var jobScriptParserCommand QSubCommand
 
 func parseSgeResources(resources []string) map[string]string {
 	res := map[string]string{}
@@ -78,18 +83,25 @@ func decodeMemReq(req string) (mem int, err error) {
 }
 
 func (x *QSubCommand) Execute(args []string) error {
+	// leave early if parsing jobscript arguments
+	if jobScriptParser.Active != nil &&
+		jobScriptParser.Active.Name == jarvice.JobScriptArg {
+		return nil
+	}
+
 	if x.Help {
 		return jarvice.CreateHelpErr()
 	}
 
 	// Set jobscript name
-	jobScriptFilename := ""
+	jobScriptFilename := "STDIN"
 	submitCommand := "STDIN"
 	if len(x.Args.JobScript) == 1 {
 		jobScriptFilename = x.Args.JobScript[0]
 	} else if len(x.Args.JobScript) > 1 {
 		submitCommand = strings.Join(x.Args.JobScript, " ")
 	}
+
 	// validate binary flag
 	if jarvice.IsYes(x.Binary) && jobScriptFilename == "STDIN" {
 		return errors.New("qsub: missing command")
@@ -109,25 +121,18 @@ func (x *QSubCommand) Execute(args []string) error {
 			Script: []byte(submitCommand),
 		}
 	}
-	/*
-		fmt.Println("#####")
-		fmt.Println("script:", string(jobScript.Script))
-		fmt.Println("#####")
-	*/
-	jobScriptFilename = filepath.Base(jobScriptFilename)
 
-	/*
-		// SgeJobScriptDebug(jobScript)
-		// Save job script command line arguments
-		// jobScriptArgs := cmdFlags.Args()[1:]
-		// Process Slurm args inside job script
-		scriptJobSpec, _, _, perr := parseQSubArgs(jobScript.Args)
-		if perr != nil {
-			log.Fatal(perr)
-			return perr
-		}
-	*/
-	// TODO parse flags from job script ^^^
+	// parse flags from jobscript (CLI flags take precedence;override == false)
+	if jarvice.ParseJobFlags(x,
+		parser,
+		jobScriptParser,
+		append([]string{jarvice.JobScriptArg}, jobScript.Args...),
+		false) != nil {
+		// Best effort
+		fmt.Println("WARNING: unable to parse flags in jobscript")
+	}
+
+	jobScriptFilename = filepath.Base(jobScriptFilename)
 
 	resources := parseSgeResources(x.Resources)
 
@@ -303,4 +308,9 @@ func init() {
 		"SGE qsub",
 		"submit a batch job to Sun Grid Engine",
 		&qSubCommand)
+	// parser for jobscript flags
+	jobScriptParser.AddCommand(jarvice.JobScriptArg,
+		jarvice.JobScriptArg,
+		jarvice.JobScriptArg,
+		&jobScriptParserCommand)
 }

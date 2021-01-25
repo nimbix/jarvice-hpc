@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/jessevdk/go-flags"
@@ -537,4 +538,46 @@ func IsYes(str string) bool {
 		return true
 	}
 	return false
+}
+
+const JobScriptArg = "PARSE_JOBSCRIPT"
+
+func ParseJobFlags(flags interface{}, parser *flags.Parser,
+	jobScriptParser *flags.Parser, args []string, override bool) error {
+
+	if _, err := jobScriptParser.ParseArgs(args); err != nil ||
+		jobScriptParser.Active == nil {
+		return errors.New("unable to parse jobscript flags")
+	}
+
+	for _, option := range jobScriptParser.Active.Options() {
+		if option.IsSet() && !option.IsSetDefault() {
+			optionName := option.Field().Name
+			optionValue := option.Value()
+			// set flag in flags if not already set or override requested
+			isSet := parser.Active.FindOptionByShortName(option.ShortName).IsSet()
+			if !isSet || override {
+				ps := reflect.ValueOf(flags)
+				s := ps.Elem()
+				f := s.FieldByName(optionName)
+
+				if f.IsValid() {
+					if f.CanSet() {
+						switch f.Kind() {
+						case reflect.Int:
+							x := int64(optionValue.(int))
+							if !f.OverflowInt(x) {
+								f.SetInt(x)
+							}
+						case reflect.String:
+							f.SetString(optionValue.(string))
+						default:
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
