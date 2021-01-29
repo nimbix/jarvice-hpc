@@ -1,17 +1,25 @@
-package core
+package jarvice
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
+	"path/filepath"
+	"reflect"
 	"strings"
+	"text/tabwriter"
+
+	"github.com/jessevdk/go-flags"
 )
 
 const (
@@ -25,23 +33,13 @@ const (
 	// TODO: use application command specified by queue
 	JarviceHpcCommand = "Batch"
 	// XXX
-	JarviceHpcGeometry   = "1280x720"
-	JarviceHpcStaging    = false
-	JarviceHpcCheckedout = false
+	JarviceHpcGeometry    = "1280x720"
+	JarviceHpcStaging     = false
+	JarviceHpcCheckedout  = false
+	JarviceHpcCommandName = "HpcJob"
 )
 
 const JarviceHpcConfigEnv = "JARVICE_HPC_CONFIG"
-
-// TODO: get default queue from JARVICE API
-func MyTestQueue() JarviceQueue {
-	return JarviceQueue{
-		Name:                "default",
-		App:                 "khill-hpc_test",
-		AppCommand:          "Batch",
-		DefaultMachine:      "n3",
-		DefaultMachineScale: 1,
-	}
-}
 
 // XXX
 // Data for HPC job script
@@ -89,23 +87,17 @@ type JobSpec struct {
 	BeginTime         string `json:"hpc_begin_time"`
 }
 
-// Layout for JARVICE config file
-/*
-{
-	"default": {
-		"jarvice_endpoint": "<jarvice-api-url>",
-		"jarvice_vault": "ephemeral",
-		"jarvice_user": {
-			"username": "<username>",
-			"apikey": "<apikey>"
-		}
-	}
-}
-*/
 type JarviceCluster struct {
 	Endpoint string       `json:"jarvice_endpoint"`
 	Vault    string       `json:"jarvice_vault"`
 	Creds    JarviceCreds `json:"jarvice_user"`
+}
+
+func (c JarviceCluster) GetUrlCreds() url.Values {
+	values := url.Values{}
+	values.Add("username", c.Creds.Username)
+	values.Add("apikey", c.Creds.Apikey)
+	return values
 }
 
 type JarviceCreds struct {
@@ -134,6 +126,16 @@ type JarviceVault struct {
 	Force    bool   `json:"force"`
 }
 
+type HpcReq struct {
+	JobEnvConfig string            `json:"hpc_job_env_config"`
+	JobScript    string            `json:"hpc_job_script"`
+	JobShell     string            `json:"hpc_job_shell"`
+	Queue        string            `json:"hpc_queue"`
+	Umask        int               `json:"hpc_umask"`
+	Envs         map[string]string `json:"hpc_envs"`
+	Resources    map[string]string `json:"hpc_resources"`
+}
+
 type JarviceJobRequest struct {
 	App         string             `json:"app"`
 	Staging     bool               `json:"staging"`
@@ -143,6 +145,8 @@ type JarviceJobRequest struct {
 	Vault       JarviceVault       `json:"vault"`
 	JobLabel    string             `json:"job_label,omitempty"`
 	User        JarviceCreds       `json:"user"`
+	Hpc         HpcReq             `json:"hpc"`
+	Licenses    *string            `json:"licenses,omitempty"`
 }
 
 // Return from API (jarvice/submit)
@@ -151,26 +155,32 @@ type JarviceJobResponse struct {
 	Number int    `json:"number"`
 }
 
-type JarviceQueue struct {
-	Name                string `json:"hpc_queue_name"`
-	App                 string `json:"hpc_queue_app"`
-	AppCommand          string `json:"hpc_queue_app_command"`
-	DefaultMachine      string `json:"hpc_queue_default_machine"`
-	DefaultMachineScale int    `json:"hpc_queue_default_machine_scale"`
+type JarviceApiSubmission struct {
+	Machine JarviceMachine `json:"machine"`
+	Queue   string         `json:"queue"`
 }
 
-// Subcommands for 'jarvice' CLI command
-func Jarvice(args []string) error {
-	switch subCommand := args[0]; subCommand {
-	case "login":
-		return jarviceHpcLogin(args[1:])
-	case "vault":
-		return jarviceHpcVault(args[1:])
-	default:
-		fmt.Println("jarvice: unknown command")
-	}
-	return nil
+type JarviceJob struct {
+	Label         string               `json:"job_label"`
+	User          string               `json:"job_owner_username"`
+	Status        string               `json:"job_status"`
+	SubmitTime    int                  `json:"job_submit_time"`
+	StartTime     int                  `json:"job_start_time"`
+	EndTime       int                  `json:"job_end_time"`
+	ExitCode      int                  `json:"job_exitcode"`
+	App           string               `json:"job_application"`
+	ApiSubmission JarviceApiSubmission `json:"job_api_submission"`
 }
+type JarviceJobs = map[int]JarviceJob
+
+type JarviceQueue struct {
+	Name           string `json:"name"`
+	App            string `json:"app"`
+	DefaultMachine string `json:"machine"`
+	MachineScale   int    `json:"size"`
+}
+
+type JarviceQueues = map[string]JarviceQueue
 
 // Submit job request to JARVICE API
 func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
@@ -180,7 +190,6 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	if err != nil {
 		return JarviceJobResponse{}, errors.New(submitErrMsg + "marshal JSON")
 	}
-
 	req, err := http.NewRequest("POST", url+"/jarvice/submit",
 		bytes.NewBuffer(jsonBytes))
 	if err != nil {
@@ -196,7 +205,15 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return JarviceJobResponse{}, errors.New(submitErrMsg + http.StatusText(resp.StatusCode))
+		body, _ := ioutil.ReadAll(resp.Body)
+		errResp := map[string]string{}
+		var errMsg string
+		if err := json.Unmarshal([]byte(body), &errResp); err == nil {
+			if msg, ok := errResp["error"]; ok {
+				errMsg = ": " + msg
+			}
+		}
+		return JarviceJobResponse{}, errors.New(submitErrMsg + http.StatusText(resp.StatusCode) + errMsg)
 	}
 
 	var jarviceResponse JarviceJobResponse
@@ -211,85 +228,92 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	return jarviceResponse, nil
 }
 
-func jarviceHpcLogin(args []string) (err error) {
-	flags := flag.NewFlagSet("login", flag.ContinueOnError)
-
-	endpoint := flags.String("endpoint", "", "JARVICE API endpoint")
-	username := flags.String("username", "", "JARVICE username")
-	apikey := flags.String("apikey", "", "JARVICE apikey")
-	cluster := flags.String("cluster", "default", "JARVICE cluster label")
-	vault := flags.String("vault", "ephemeral", "default JARVICE vault")
-
-	if flags.Parse(args) != nil {
-		err = errors.New("jarvice: cannot process arguments")
-		return
-	}
-
-	config := make(JarviceConfig)
-	config, _ = ReadJarviceConfig()
-	config[*cluster] = JarviceCluster{
-		Endpoint: *endpoint,
-		Vault:    *vault,
+func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
+	config, _ := ReadJarviceConfig()
+	config[cluster] = JarviceCluster{
+		Endpoint: endpoint,
+		Vault:    vault,
 		Creds: JarviceCreds{
-			Username: *username,
-			Apikey:   *apikey,
+			Username: username,
+			Apikey:   apikey,
 		},
 	}
-
-	if !testJarviceEndpoint(*cluster, config) {
+	if !testJarviceEndpoint(cluster, config) {
 		err = errors.New("jarvice: JARVICE endpoint not live")
 		return
 	}
-	if !testJarviceCreds(*cluster, config) {
+	if !testJarviceCreds(cluster, config) {
 		err = errors.New("jarvice: unable to validate JARVICE credentials")
 		return
 	}
 	err = WriteJarviceConfig(config)
+	// set config TARGET (best effort)
+	WriteJarviceConfigTarget(cluster)
 	return
+}
+
+func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
+	u, _ := url.ParseRequestURI(endpoint)
+	u.Path = path.Clean(u.Path + "/jarvice/" + api)
+	u.RawQuery = args.Encode()
+	if resp, err := http.Get(u.String()); err != nil {
+		return nil, err
+	} else {
+		defer resp.Body.Close()
+		if body, err := ioutil.ReadAll(resp.Body); err != nil {
+			return nil, errors.New("HTTP IO error")
+		} else {
+			if resp.StatusCode != http.StatusOK {
+				respMap := map[string]string{}
+				json.Unmarshal(body, &respMap)
+				errMsg := ""
+				if msg, ok := respMap["error"]; ok {
+					errMsg = msg
+				}
+				return nil, errors.New("API req /jarvice/" + api + ": " + errMsg)
+			} else {
+				return body, nil
+			}
+		}
+	}
 }
 
 func testJarviceCreds(cluster string, config JarviceConfig) bool {
 	// Test credential using JARVICE API endpoint that requires authorization
-	resp, err := http.Get(config[cluster].Endpoint + "/jarvice/machines" +
-		"?username=" + config[cluster].Creds.Username +
-		"&apikey=" + config[cluster].Creds.Apikey)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if myCluster, ok := config[cluster]; ok {
+		if _, err := ApiReq(myCluster.Endpoint, "machines", myCluster.GetUrlCreds()); err == nil {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
 func testJarviceEndpoint(cluster string, config JarviceConfig) bool {
-	resp, err := http.Get(config[cluster].Endpoint + "/jarvice/live")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if myCluster, ok := config[cluster]; ok {
+		if _, err := ApiReq(myCluster.Endpoint, "live", url.Values{}); err == nil {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
-func jarviceHpcVault(args []string) error {
-	flags := flag.NewFlagSet("vault", flag.ContinueOnError)
-
-	cluster := flags.String("cluster", "default", "JARVICE cluster label")
-	vault := flags.String("vault", "ephemeral", "JARVICE vault")
-
-	if flags.Parse(args) != nil {
-		return errors.New("vault: cannot process arguments")
-	}
+func HpcVault(vault string) (err error) {
 
 	config, err := ReadJarviceConfig()
 	if err != nil {
 		return errors.New("vault: config not found. Try login first")
 	}
+	cluster := ReadJarviceConfigTarget()
+	if myCluster, ok := config[cluster]; !ok {
+		return errors.New("vault: config not found")
+	} else {
+		myCluster.Vault = vault
+		config[cluster] = myCluster
 
-	myCluster := config[*cluster]
-	myCluster.Vault = *vault
-	config[*cluster] = myCluster
-
-	if err := WriteJarviceConfig(config); err != nil {
-		return errors.New("vault: unable to write config file")
+		if err := WriteJarviceConfig(config); err != nil {
+			return errors.New("vault: unable to write config file")
+		}
 	}
-
 	return nil
 }
 
@@ -314,15 +338,42 @@ func getJarviceConfigPath() string {
 		return backupPath + JarviceHpcConfigFilename
 	} else {
 		if err := os.MkdirAll(backupPath, 0744); err != nil {
-			fmt.Println("test1")
 			return JarviceHpcConfigFilename
 		}
 	}
 	if _, err := os.Create(backupPath + JarviceHpcConfigFilename); err != nil {
-		fmt.Println("test2")
 		return JarviceHpcConfigFilename
 	}
 	return backupPath + JarviceHpcConfigFilename
+}
+
+func WriteJarviceConfigTarget(target string) error {
+	configPath := path.Dir(getJarviceConfigPath())
+	configFile := configPath + "/TARGET"
+	// Ensure config file uses proper permissions
+	// TODO: replace with perms check/error?
+	os.Chmod(configFile, JarviceHpcConfigFilePerms)
+	// XXX
+	err := ioutil.WriteFile(configFile, []byte(target), JarviceHpcConfigFilePerms)
+	return err
+}
+
+func ReadJarviceConfigTarget() string {
+	// Best effort (default: "default")
+	defaultTarget := "default"
+	configPath := path.Dir(getJarviceConfigPath())
+	filename := configPath + "/TARGET"
+	if !fileExist(filename) {
+		return defaultTarget
+	}
+	jsonFile, err := os.Open(filename)
+	defer jsonFile.Close()
+	if err != nil {
+		return defaultTarget
+	}
+	bytes, _ := ioutil.ReadAll(jsonFile)
+
+	return string(bytes)
 }
 
 func WriteJarviceConfig(config JarviceConfig) error {
@@ -361,50 +412,210 @@ func ReadJarviceConfig() (JarviceConfig, error) {
 }
 
 func ParseJobScript(directive, filename string) (JobScript, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		log.Fatal(err)
-		return JobScript{}, err
-	}
-	defer file.Close()
 
-	var shell string
-	var args []string
-	var script []byte
+	var scanner *bufio.Scanner
 
-	scanner := bufio.NewScanner(file)
-	scanner.Scan()
-	fmt.Println(scanner.Text())
-	fmt.Println(scanner.Text()[:2])
-	if line := scanner.Text(); line[:2] == "#!" {
-		shell = line[2:]
-		fmt.Println(shell)
+	if filename == "STDIN" {
+		scanner = bufio.NewScanner(os.Stdin)
 	} else {
-		shell = "/bin/sh"
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatal(err)
+			return JobScript{}, err
+		}
+		defer file.Close()
+		scanner = bufio.NewScanner(file)
 	}
-	fmt.Printf("#" + directive + "\n")
-	parsed := false
+
+	shell := "/bin/sh"
+	var args []string
+	script := []byte{}
+
+	shelled := false
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !parsed && line[:len(directive)+1] == "#"+directive {
-			ss := strings.Fields(line[len(directive)+1:])[0]
-			fmt.Println(ss)
-			args = append(args, ss)
+		if len(line) == 0 {
 			continue
-		} else {
-			parsed = true
+		}
+		if len(line) > 1 {
+			if line[0] == '#' {
+				if line[1] == '!' && !shelled {
+					shell = line[2:]
+					shelled = true
+					continue
+				} else if line[1] != directive[0] {
+					// noop for comment
+					continue
+				} else if len(line) > (len(directive) + 1) {
+					if line[:len(directive)+1] == "#"+directive {
+						// strip off comments
+						flagLine := strings.Split(line[len(directive)+1:], "#")[0]
+						elements := strings.Split(flagLine, " ")
+						// go through elements in line to build args
+						appendArg := false
+						for _, element := range elements {
+							// is element a flag (- or -- prefix)
+							if ok := len(element) > 0; ok && element[0] == '-' {
+								appendArg = false
+								dict := strings.Split(element, "=")
+								if len(dict) == 2 {
+									args = append(args, dict[0])
+									args = append(args, dict[1])
+									appendArg = true
+								} else {
+									args = append(args, dict[0])
+								}
+							} else {
+								if appendArg {
+									index := len(args) - 1
+									args[index] = args[index] + " " + element
+								} else {
+									appendArg = true
+									args = append(args, element)
+								}
+							}
+						}
+						continue
+					}
+				}
+			}
 		}
 		script = append(script, scanner.Bytes()...)
 		script = append(script, '\n')
 	}
-	// TODO: remove
-	fmt.Println("###########")
-	fmt.Println(string(script))
-	fmt.Println("###########")
-	// XXX
 	return JobScript{
 		Shell:  shell,
 		Args:   args,
 		Script: script,
 	}, nil
+}
+
+func GetOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	// best effort
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().String()
+	parts := strings.Split(localAddr, ":")
+	return parts[0]
+}
+
+func GetClusterConfig() (cluster JarviceCluster, err error) {
+	config, err := ReadJarviceConfig()
+	if err != nil {
+		return JarviceCluster{}, errors.New("cannot read JARVICE config")
+	}
+	clusterName := ReadJarviceConfigTarget()
+	if val, ok := config[clusterName]; ok {
+		return val, nil
+	}
+	return JarviceCluster{}, errors.New("cannot find credentials for " + clusterName)
+}
+
+func CreateHelpErr() error {
+	err := flags.Error{
+		Type:    flags.ErrHelp,
+		Message: "show help message",
+	}
+	return &err
+}
+
+func PreprocessArgs(args []string) ([]string, error) {
+	pArgs := args
+	// strip path for arg 0
+	pArgs[0] = filepath.Base(args[0])
+	for index, val := range pArgs {
+		if strings.HasPrefix(val, "-") && len(val[1:]) > 1 && val[1] != '-' {
+			pArgs[index] = "-" + val
+		}
+	}
+	switch pArgs[0] {
+	case "qsub":
+		// preprocess -pe <pe-name> <pe-int>
+		// remove pe name
+		for index, val := range pArgs {
+			if val == "-pe" || val == "--pe" {
+				if len(pArgs) > index+2 {
+					pArgs = append(pArgs[:index+1], pArgs[index+2:]...)
+				} else {
+					return nil, errors.New("unable to preprocess qsub parallel environment\n" +
+						"-pe <pe-name> <int>")
+				}
+			}
+		}
+	default:
+		// do nothing
+	}
+	return pArgs, nil
+}
+
+func IsYes(str string) bool {
+	if str == "y" || str == "Y" || str == "yes" || str == "Yes" {
+		return true
+	}
+	return false
+}
+
+const JobScriptArg = "PARSE_JOBSCRIPT"
+
+func ParseJobFlags(flags interface{}, parser *flags.Parser,
+	jobScriptParser *flags.Parser, args []string, override bool) error {
+
+	if _, err := jobScriptParser.ParseArgs(args); err != nil ||
+		jobScriptParser.Active == nil {
+		return errors.New("unable to parse jobscript flags")
+	}
+
+	for _, option := range jobScriptParser.Active.Options() {
+		if option.IsSet() && !option.IsSetDefault() {
+			optionName := option.Field().Name
+			optionValue := option.Value()
+			// set flag in flags if not already set or override requested
+			isSet := parser.Active.FindOptionByShortName(option.ShortName).IsSet()
+			if !isSet || override {
+				ps := reflect.ValueOf(flags)
+				s := ps.Elem()
+				f := s.FieldByName(optionName)
+
+				if f.IsValid() {
+					if f.CanSet() {
+						switch f.Kind() {
+						case reflect.Int:
+							x := int64(optionValue.(int))
+							if !f.OverflowInt(x) {
+								f.SetInt(x)
+							}
+						case reflect.String:
+							f.SetString(optionValue.(string))
+						default:
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func PrintTable(table [][]string, line bool) {
+	w := tabwriter.NewWriter(os.Stdout, 8, 8, 0, '\t', 0)
+	defer w.Flush()
+	for index, record := range table {
+		if index == 1 && line {
+			for i := 0; i < len(record); i++ {
+				for j := 0; j < int(math.Ceil(float64(len(record[i]))/8.0))*8; j++ {
+					fmt.Fprintf(w, "%s", "-")
+				}
+				fmt.Fprintf(w, "\t")
+			}
+			fmt.Fprintf(w, "\n")
+		}
+		for _, value := range record {
+			fmt.Fprintf(w, "%s\t", value)
+		}
+		fmt.Fprintf(w, "\n")
+	}
 }
