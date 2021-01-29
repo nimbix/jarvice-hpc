@@ -194,7 +194,7 @@ Exiting
 *NOTE* Flags set on the command line will override options set inside a jobscript
 
 
-### Muli Node SGE job
+### Muli Node Slurm job
 
 examples/slurmmulti:
 ```
