@@ -1,0 +1,1 @@
+COMS="sbatch scancel squeue sinfo"
