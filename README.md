@@ -170,7 +170,7 @@ Example output
 ```
 PARTITION	AVAIL	TIMELIMIT	NODES	STATE	NODELIST
 large		up	    infinite	4	    idle	n3[0-3]
-med		    up	    infinite	2	    idle	n0[0-1]
+med	        up	    infinite	2	    idle	n0[0-1]
 small		up	    infinite	1	    idle	n0[0-0]
 ```
 
