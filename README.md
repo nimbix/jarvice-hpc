@@ -60,7 +60,7 @@ jarvice login -cluster <cluster-name> \
 * `jarvice-vault: JARVICE vault to use with HPC jobs (e.g. drop)`
 *Note* Find available vaults [here](https://vaults.jarvice.com) with JARVICE username and apikey
 
-The cluster configured by `jarvice login` will be used by all JARVICE-HPC plugin commands
+The cluster configured by `jarvice login` will be used by all JARVICE-HPC plugin commands. `ephemeral` vaults are currently not supported
 
 ### Simple SGE job
 
