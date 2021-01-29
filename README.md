@@ -17,43 +17,26 @@ JARVICE-HPC targets the Linux OS and has currently been tested on:
 
 ### Building requirements
 
-JARVICE-HPC is built using GoLang 1.14
+JARVICE-HPC is built using GoLang 1.14 Docker container
 
-* Build using Docker: https://docs.docker.com/engine/install/
+* Install Docker: https://docs.docker.com/engine/install/
 
-## Installing
+## Install
 
-### Building JARVICE-HPC
-
-```
-docker run -ti --rm -v "$PWD":/usr/src/jarvice-hpc \
-    -w /usr/src/jarvice-hpc \
-    -e GOOS=darwin golang:1.14 \
-    /bin/bash -c "go get github.com/jessevdk/go-flags \
-    && mkdir -p /go/src/jarvice.io \
-    && ln -s /usr/src/jarvice-hpc/core /go/src/jarvice.io \
-    && go build -v -o jarvice *.go"
-```
-
-### Installing SGE plugin for JARVICE-HPC
+### SGE
 
 ```
-INSTALL_PREFIX=/usr/local/bin
-mv jarvice ${INSTALL_PREFIX}/jarvice
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/qstat
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/qconf
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/qsub
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/qacct
+git clone https://github.com/nimbix/jarvice-hpc
+cd jarvice-hpc
+./install.sh sge
 ```
 
-### Installing Slurm plugin for JARVICE-HPC
+### Slurm
 
 ```
-INSTALL_PREFIX=/usr/local/bin
-mv jarvice ${INSTALL_PREFIX}/jarvice
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/sbatch
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/scancel
-ln -s ${INSTALL_PREFIX}/jarvice ${INSTALL_PREFIX}/squeue
+git clone https://github.com/nimbix/jarvice-hpc
+cd jarvice-hpc
+./install.sh slurm
 ```
 
 ## Running jobs
@@ -77,9 +60,11 @@ jarvice login -cluster <cluster-name> \
 * `jarvice-vault: JARVICE vault to use with HPC jobs (e.g. drop)`
 *Note* Find available vaults [here](https://vaults.jarvice.com) with JARVICE username and apikey
 
+The cluster configured by `jarvice login` will be used by all JARVICE-HPC plugin commands
+
 ### Simple SGE job
 
-sgejobscript:
+examples/sgescript:
 ```
 #!/bin/bash
 #$ -N serial job test    # Job name
@@ -108,7 +93,7 @@ small
 2) Submit job script to desired queue
 
 ```
-qsub -l mc_cluster=default -q <queue-name> sgejobscript
+qsub -q <queue-name> examples/sgescript
 ```
 
 Example output
@@ -122,9 +107,12 @@ Ubuntu 16.04.5 LTS \n \l
 Exiting
 ```
 
+*NOTE* Flags set on the command line will override options set inside a jobscript
+
+
 ### Muli Node SGE job
 
-sgehpcjobscript:
+examples/sgemulti:
 ```
 #!/bin/bash
 #$ -N hpc job test    # Job name
@@ -135,10 +123,11 @@ mpirun --hostfile /etc/JARVICE/nodes -pernode hostname
 sleep 30
 echo 'Exiting'
 ```
+
 Submit job script with multiple nodes
 
 ```
-qsub -l mc_cluster=default -q <queue-name> -pe hpc <number-nodes> sgehpcjobscript
+qsub -q <queue-name> -pe hpc <number-nodes> examples/sgemulti
 ```
 
 Example output

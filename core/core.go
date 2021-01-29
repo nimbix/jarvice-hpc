@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/jessevdk/go-flags"
 )
@@ -176,6 +179,8 @@ type JarviceQueue struct {
 	DefaultMachine string `json:"machine"`
 	MachineScale   int    `json:"size"`
 }
+
+type JarviceQueues = map[string]JarviceQueue
 
 // Submit job request to JARVICE API
 func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
@@ -443,15 +448,30 @@ func ParseJobScript(directive, filename string) (JobScript, error) {
 					continue
 				} else if len(line) > (len(directive) + 1) {
 					if line[:len(directive)+1] == "#"+directive {
-						parts := strings.Split(line[len(directive)+1:], "-")
-						if len(parts) > 0 {
-							for _, val := range parts[1:] {
-								// strip off comments
-								val = strings.Split(val, "#")[0]
-								tempArgs := strings.Split(strings.TrimRight("-"+val, " "), " ")
-								args = append(args, tempArgs[0])
-								if len(tempArgs) > 1 {
-									args = append(args, strings.Join(tempArgs[1:], " "))
+						// strip off comments
+						flagLine := strings.Split(line[len(directive)+1:], "#")[0]
+						elements := strings.Split(flagLine, " ")
+						// go through elements in line to build args
+						appendArg := false
+						for _, element := range elements {
+							// is element a flag (- or -- prefix)
+							if ok := len(element) > 0; ok && element[0] == '-' {
+								appendArg = false
+								dict := strings.Split(element, "=")
+								if len(dict) == 2 {
+									args = append(args, dict[0])
+									args = append(args, dict[1])
+									appendArg = true
+								} else {
+									args = append(args, dict[0])
+								}
+							} else {
+								if appendArg {
+									index := len(args) - 1
+									args[index] = args[index] + " " + element
+								} else {
+									appendArg = true
+									args = append(args, element)
 								}
 							}
 						}
@@ -506,8 +526,6 @@ func PreprocessArgs(args []string) ([]string, error) {
 	pArgs := args
 	// strip path for arg 0
 	pArgs[0] = filepath.Base(args[0])
-	// Process args based on command
-	// long flafs must use '--' for go-flags (prefix '-' to fix single '-' SGE long flags)
 	for index, val := range pArgs {
 		if strings.HasPrefix(val, "-") && len(val[1:]) > 1 && val[1] != '-' {
 			pArgs[index] = "-" + val
@@ -580,4 +598,24 @@ func ParseJobFlags(flags interface{}, parser *flags.Parser,
 	}
 
 	return nil
+}
+
+func PrintTable(table [][]string, line bool) {
+	w := tabwriter.NewWriter(os.Stdout, 8, 8, 0, '\t', 0)
+	defer w.Flush()
+	for index, record := range table {
+		if index == 1 && line {
+			for i := 0; i < len(record); i++ {
+				for j := 0; j < int(math.Ceil(float64(len(record[i]))/8.0))*8; j++ {
+					fmt.Fprintf(w, "%s", "-")
+				}
+				fmt.Fprintf(w, "\t")
+			}
+			fmt.Fprintf(w, "\n")
+		}
+		for _, value := range record {
+			fmt.Fprintf(w, "%s\t", value)
+		}
+		fmt.Fprintf(w, "\n")
+	}
 }

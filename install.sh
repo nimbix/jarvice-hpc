@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 INSTALL_PREFIX=${INSTALL_PREFIX:-/usr/local/bin}
 
 CLIENT=${1:-sge}

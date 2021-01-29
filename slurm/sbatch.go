@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -17,38 +18,57 @@ import (
 	jarvice "jarvice.io/core"
 )
 
-type QSubCommand struct {
-	Help      bool     `short:"h" long:"help" description:"Show this help message"`
-	Binary    string   `short:"b" description:"binary or script"`
-	Shell     string   `short:"S" description:"job shell"`
-	JobName   string   `short:"N" description:"job name"`
-	Cwd       bool     `long:"cwd" description:"current working directory"`
-	Resources []string `short:"l" description:"job resources. NOTE: -soft treated as hard resources"`
-	Pe        int      `long:"pe" description:"parallel environment job scale.\n-pe <pe-name> <pe-scale>\nNOTE: ranges not support (expect single integer)\n<pe-name> will be discarded"`
-	Queue     string   `short:"q" description:"target queue" default:"default"`
+type SBatchCommand struct {
+	Help      bool   `short:"h" long:"help" description:"Show this help message"`
+	Chdir     string `short:"D" long:"chdir" description:"working directory"`
+	Jobname   string `short:"J" long:"job-name" description:"Specify a name for the job allocation"`
+	Nodes     int    `short:"N" long:"nodes" description:"Number of nodes be allocated to this job"`
+	Time      string `short:"t" long:"time" description:"time limit hours:minutes:seconds"`
+	Partition string `short:"p" long:"partition" description:"Request a specific partition for the resource allocation" default:"default"`
+	Account   string `short:"A" long:"account" description:"Charge resources used by this job to specified account"`
+	NodeInfo  string `short:"B" long:"extra-node-info" description:"Restrict node selection to nodes with at least the specified number of sockets, cores per socket and/or threads per core\nsockets[:cores[:threads]]\nNOTE: JARVICE does not accept socket or thread requests; cores request := sockets x cores"`
+	Gpus      string `short:"G" long:"gpus" description:"Specify the total number of GPUs required for the job"`
+	Mem       string `long:"mem" description:"Specify the real memory required per node. Default units are megabytes. Different units can be specified using the suffix [K|M|G|T]"`
+	Gres      string `long:"gres" description:"Specifies a comma delimited list of generic consumable resources. The format of each entry on the list is \"name[[:type]:count]\""`
 	Args      struct {
-		JobScript []string `positional-arg-name:"jobscript" description:"SGE job script | job command"`
+		JobScript []string `positional-arg-name:"jobscript" description:"job script | job command"`
 		//JobCommand string `positional-arg-name:"command" description:
 	} `positional-args:"true"`
 }
 
-var qSubCommand QSubCommand
+var sBatchCommand SBatchCommand
 var jobScriptParser = flags.NewNamedParser(jarvice.JobScriptArg,
 	flags.PassDoubleDash|flags.IgnoreUnknown)
 
-var jobScriptParserCommand QSubCommand
+var jobScriptParserCommand SBatchCommand
 
-func parseSgeResources(resources []string) map[string]string {
-	res := map[string]string{}
+type slurmGres struct {
+	Type  string
+	Count string
+}
 
-	for _, resource := range resources {
-		for _, flag := range strings.Split(resource, ",") {
-			split := strings.Split(flag, "=")
-			// save valid pairs (foo=bar)
-			if len(split) == 2 {
-				res[split[0]] = split[1]
+type slurmResources map[string]slurmGres
+
+func parseSlurmResources(resources string) slurmResources {
+	res := slurmResources{}
+
+	for _, resource := range strings.Split(resources, ",") {
+		split := strings.Split(resource, ":")
+		if len(split) == 1 {
+			res[split[0]] = slurmGres{
+				Type: "true",
+			}
+		} else if len(split) == 2 {
+			res[split[0]] = slurmGres{
+				Type: split[1],
+			}
+		} else if len(split) == 3 {
+			res[split[0]] = slurmGres{
+				Type:  split[1],
+				Count: split[2],
 			}
 		}
+
 	}
 
 	return res
@@ -82,7 +102,7 @@ func decodeMemReq(req string) (mem int, err error) {
 	return
 }
 
-func (x *QSubCommand) Execute(args []string) error {
+func (x *SBatchCommand) Execute(args []string) error {
 	// leave early if parsing jobscript arguments
 	if jobScriptParser.Active != nil &&
 		jobScriptParser.Active.Name == jarvice.JobScriptArg {
@@ -102,16 +122,11 @@ func (x *QSubCommand) Execute(args []string) error {
 		submitCommand = strings.Join(x.Args.JobScript, " ")
 	}
 
-	// validate binary flag
-	if jarvice.IsYes(x.Binary) && jobScriptFilename == "STDIN" {
-		return errors.New("qsub: missing command")
-	}
-
 	var jobScript jarvice.JobScript
 
 	if len(jobScriptFilename) > 0 {
-		if val, jerr := jarvice.ParseJobScript("$", jobScriptFilename); jerr != nil {
-			return errors.New("qsub: WARNING unable to parse job script")
+		if val, jerr := jarvice.ParseJobScript("SBATCH", jobScriptFilename); jerr != nil {
+			return errors.New("sbatch: WARNING unable to parse job script")
 		} else {
 			jobScript = val
 		}
@@ -121,7 +136,6 @@ func (x *QSubCommand) Execute(args []string) error {
 			Script: []byte(submitCommand),
 		}
 	}
-
 	// parse flags from jobscript (CLI flags take precedence;override == false)
 	if jarvice.ParseJobFlags(x,
 		parser,
@@ -134,7 +148,7 @@ func (x *QSubCommand) Execute(args []string) error {
 
 	jobScriptFilename = filepath.Base(jobScriptFilename)
 
-	resources := parseSgeResources(x.Resources)
+	resources := parseSlurmResources(x.Gres)
 
 	// Read JARVICE config for selected cluster
 	cluster, err := jarvice.GetClusterConfig()
@@ -142,7 +156,7 @@ func (x *QSubCommand) Execute(args []string) error {
 		return nil
 	}
 
-	queueName := x.Queue
+	queueName := x.Partition
 	// need JARVICE API creds, 'info', and 'name' for /jarvice/queues request
 	urlValues := cluster.GetUrlCreds()
 	urlValues.Add("info", "true")
@@ -153,10 +167,10 @@ func (x *QSubCommand) Execute(args []string) error {
 		urlValues); err == nil {
 
 		if err := json.Unmarshal(resp, &jarviceQueues); err != nil {
-			return errors.New("qsub: " + err.Error())
+			return errors.New("sbatch: " + err.Error())
 		}
 	} else {
-		return errors.New("qsub: connot find queue: " + queueName + "  " + err.Error())
+		return errors.New("sbatch: connot find partition: " + queueName + "  " + err.Error())
 	}
 	var myQueue jarvice.JarviceQueue
 	for _, queue := range jarviceQueues {
@@ -164,21 +178,13 @@ func (x *QSubCommand) Execute(args []string) error {
 		break
 	}
 
-	if len(x.Shell) > 0 {
-		jobScript.Shell = x.Shell
-	}
-
 	var cwd string
-	if x.Cwd {
-		if wd, err := os.Getwd(); err != nil {
-			cwd = "${HOME}"
-		} else {
-			cwd = wd
-		}
+	if len(x.Chdir) > 0 {
+		cwd = x.Chdir
 	}
-	jobName := "SGE"
-	if len(x.JobName) > 0 {
-		jobName = x.JobName
+	jobName := "SBATCH"
+	if len(x.Jobname) > 0 {
+		jobName = x.Jobname
 	}
 
 	// Set /etc/hosts for remote HPC job
@@ -190,8 +196,40 @@ func (x *QSubCommand) Execute(args []string) error {
 	if len(myPrivateIP) > 0 {
 		ipString = myPrivateIP + " " + myHostname
 	}
-	// Set SGE Output Environment Variables
-	sgeEnvs := make(map[string]string)
+	// Set Slurm Output Environment Variables
+	slurmEnvs := make(map[string]string)
+	slurmEnvs["SLURM_CLUSTER_NAME"] = jarvice.ReadJarviceConfigTarget()
+	if len(x.Account) > 0 {
+		slurmEnvs["SLURM_JOB_ACCOUNT"] = x.Account
+	} else {
+		slurmEnvs["SLURM_JOB_ACCOUNT"] = cluster.Creds.Username
+	}
+	if len(x.Partition) > 0 {
+		slurmEnvs["SLURM_JOB_PARTITION"] = x.Partition
+	} else {
+		slurmEnvs["SLURM_JOB_PARTITION"] = "default"
+	}
+	if slurmSubmitDir, err := os.Getwd(); err != nil {
+		log.Println("sbatch: WARNING setting SLURM_SUBMIT_DIR to ${HOME}")
+		slurmEnvs["SLURM_SUBMIT_DIR"] = "${HOME}"
+	} else {
+		if len(x.Chdir) > 0 {
+			slurmEnvs["SLURM_SUBMIT_DIR"] = x.Chdir
+		} else {
+			slurmEnvs["SLURM_SUBMIT_DIR"] = slurmSubmitDir
+		}
+	}
+	if submitHost, err := os.Hostname(); err != nil {
+		log.Println("sbatch: WARNING setting SLURM_SUBMIT_HOST to localhost")
+		slurmEnvs["SLURM_SUBMIT_HOST"] = "localhost"
+	} else {
+		slurmEnvs["SLURM_SUBMIT_HOST"] = submitHost
+	}
+	if len(x.Jobname) > 0 {
+		slurmEnvs["SLURM_JOB_NAME"] = x.Jobname
+	} else {
+		slurmEnvs["SLURM_JOB_NAME"] = jobScriptFilename
+	}
 	myHpcReq := jarvice.HpcReq{
 		// sudo is required to edit /etc/hosts (best effort)
 		JobEnvConfig: `join () { local IFS="$1"; shift; echo "$*"; };` +
@@ -205,15 +243,19 @@ func (x *QSubCommand) Execute(args []string) error {
 			`echo ` + ipString + ` | sudo tee -a /etc/hosts || true`,
 		JobScript: base64.StdEncoding.EncodeToString(jobScript.Script),
 		JobShell: "cd " + cwd + " && " +
-			"SGE_JOB_NODELIST=${sge_hosts} " +
-			"SGE_CPUS_ON_NODE=${numcpu} " +
-			"SGE_JOB_NUM_NODES=${numnodes} " +
-			"SGE_JOB_CPUS_PER_NODE=${cpupernode} " +
-			"SGE_PROCID=${procid} " +
+			"SLURM_JOB_NODELIST=${slurm_hosts} " +
+			"SLURM_NODELIST=${slurm_hosts} " +
+			"SLURM_NODE_ALIASES=${host_alias} " +
+			"SLURMD_NODENAME=${slurm_host} " +
+			"SLURM_CPUS_ON_NODE=${numcpu} " +
+			"SLURM_JOB_NUM_NODES=${numnodes} " +
+			"SLURM_NNODES=${numnodes} " +
+			"SLURM_JOB_CPUS_PER_NODE=${cpupernode} " +
+			"SLURM_PROCID=${procid} " +
 			jobScript.Shell,
 		Queue:     myQueue.Name,
 		Umask:     0,
-		Envs:      sgeEnvs,
+		Envs:      slurmEnvs,
 		Resources: map[string]string{},
 	}
 
@@ -221,27 +263,38 @@ func (x *QSubCommand) Execute(args []string) error {
 	// Check for machine type
 	var hpcMachineReq string
 	if val, ok := resources["mc_name"]; ok {
-		hpcMachineReq = val
+		hpcMachineReq = val.Type
 	}
 	myHpcReq.Resources["mc_name"] = hpcMachineReq
 	// Check for licenses
 	var hpcLicenses *string
 	if val, ok := resources["mc_licenses"]; ok {
 		hpcLicenses = new(string)
-		*hpcLicenses = val
+		*hpcLicenses = val.Type
 	}
 
 	// CPU cores
 	coreReq := 0
-	if val, ok := resources["cpu"]; ok {
-		if f, err := strconv.ParseFloat(val, 64); err == nil {
-			coreReq = int(math.Ceil(f))
+	if val := x.NodeInfo; len(val) > 0 {
+		// Grab first value as cores request and discard the rest
+		cores := strings.Split(val, ":")
+		req := []float64{0.0, 1.0}
+		for index, number := range cores {
+			if index > 2 {
+				break
+			}
+			if f, err := strconv.ParseFloat(number, 64); err == nil {
+				req[index] = f
+			} else {
+				req[index] = 0.0
+			}
 		}
+		coreReq = int(math.Ceil(req[0] * req[1]))
 	}
 	myHpcReq.Resources["mc_cores"] = strconv.FormatInt(int64(coreReq), 10)
 	// RAM
 	memReq := 0
-	if val, ok := resources["h_rss"]; ok {
+	if val := x.Mem; len(val) > 0 {
 		if i, err := decodeMemReq(val); err == nil {
 			memReq = i
 		}
@@ -254,12 +307,12 @@ func (x *QSubCommand) Execute(args []string) error {
 	}
 	// need to validate scale (positive integer)
 	nodeScale := 1
-	if x.Pe > 0 {
-		nodeScale = x.Pe
+	if x.Nodes > 0 {
+		nodeScale = x.Nodes
 	}
-	// check if -pe request is larger than queue size
+	// check if scale request is larger than queue size
 	if nodeScale > myQueue.MachineScale {
-		return errors.New("qsub: -pe request larger than queue size (" +
+		return errors.New("sbatch: -Nodes request larger than partition size (" +
 			strconv.Itoa(myQueue.MachineScale) + ")")
 	}
 	myMachine := jarvice.JarviceMachine{
@@ -291,7 +344,7 @@ func (x *QSubCommand) Execute(args []string) error {
 	// Submit job request to JARVICE API
 	var myJobResponse jarvice.JarviceJobResponse
 	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint, myReq); err != nil {
-		return errors.New("qsub: " + err.Error())
+		return errors.New("sbatch: " + err.Error())
 	} else {
 		myJobResponse = jobResponse
 	}
@@ -302,10 +355,10 @@ func (x *QSubCommand) Execute(args []string) error {
 }
 
 func init() {
-	parser.AddCommand("qsub",
-		"SGE qsub",
-		"submit a batch job to Sun Grid Engine",
-		&qSubCommand)
+	parser.AddCommand("sbatch",
+		"Slurm sbatch",
+		"Submit a batch script to Slurm",
+		&sBatchCommand)
 	// parser for jobscript flags
 	jobScriptParser.AddCommand(jarvice.JobScriptArg,
 		jarvice.JobScriptArg,
