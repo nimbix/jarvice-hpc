@@ -16,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -449,8 +450,8 @@ func ParseJobScript(directive, filename string) (JobScript, error) {
 				} else if len(line) > (len(directive) + 1) {
 					if line[:len(directive)+1] == "#"+directive {
 						// strip off comments
-						flagLine := strings.Split(line[len(directive)+1:], "#")[0]
-						elements := strings.Split(flagLine, " ")
+						flagLine := strings.TrimLeft(strings.Split(line[len(directive)+1:], "#")[0], " ")
+						elements := strings.Split(strings.TrimRight(flagLine, " "), " ")
 						// go through elements in line to build args
 						appendArg := false
 						for _, element := range elements {
@@ -523,7 +524,10 @@ func CreateHelpErr() error {
 }
 
 func PreprocessArgs(args []string) ([]string, error) {
-	pArgs := args
+	pArgs := []string{}
+	for _, arg := range args {
+		pArgs = append(pArgs, arg)
+	}
 	// strip path for arg 0
 	pArgs[0] = filepath.Base(args[0])
 	for index, val := range pArgs {
@@ -532,14 +536,38 @@ func PreprocessArgs(args []string) ([]string, error) {
 		}
 	}
 	switch pArgs[0] {
-	case "qsub":
+	case "qsub", JobScriptArg:
+		fail := false
 		// preprocess -pe <pe-name> <pe-int>
-		// remove pe name
+		// remove <pe-name>
 		for index, val := range pArgs {
 			if val == "-pe" || val == "--pe" {
-				if len(pArgs) > index+2 {
-					pArgs = append(pArgs[:index+1], pArgs[index+2:]...)
+				if len(pArgs) > index+1 {
+					if test := strings.Split(pArgs[index+1], " "); len(test) == 2 {
+						if _, check := strconv.ParseInt(test[1], 10, 64); check != nil {
+							if len(pArgs) > index+2 {
+								// -pe <pe-name> <pe-int>
+								pArgs = append(pArgs[:index+1], pArgs[index+2:]...)
+							} else {
+								// missing <pe-int>
+								fail = true
+							}
+						} else {
+							// index+1 contains a string with int (e.g. "hpc 2")
+							pArgs = append(pArgs[:index+1],
+								append([]string{test[1]},
+									pArgs[index+2:]...)...)
+						}
+					} else if len(pArgs) > index+2 {
+						// -pe <pe-name> <pe-int>
+						pArgs = append(pArgs[:index+1], pArgs[index+2:]...)
+					} else {
+						fail = true
+					}
 				} else {
+					fail = true
+				}
+				if fail {
 					return nil, errors.New("unable to preprocess qsub parallel environment\n" +
 						"-pe <pe-name> <int>")
 				}
@@ -560,10 +588,14 @@ func IsYes(str string) bool {
 
 const JobScriptArg = "PARSE_JOBSCRIPT"
 
-func ParseJobFlags(flags interface{}, parser *flags.Parser,
+func ParseJobFlags(data interface{}, parser *flags.Parser,
 	jobScriptParser *flags.Parser, args []string, override bool) error {
 
-	if _, err := jobScriptParser.ParseArgs(args); err != nil ||
+	pArgs, err := PreprocessArgs(args)
+	if err != nil {
+		return err
+	}
+	if _, err := jobScriptParser.ParseArgs(pArgs); err != nil ||
 		jobScriptParser.Active == nil {
 		return errors.New("unable to parse jobscript flags")
 	}
@@ -573,9 +605,18 @@ func ParseJobFlags(flags interface{}, parser *flags.Parser,
 			optionName := option.Field().Name
 			optionValue := option.Value()
 			// set flag in flags if not already set or override requested
-			isSet := parser.Active.FindOptionByShortName(option.ShortName).IsSet()
+			var activeOption *flags.Option
+			if val := option.ShortName; val != 0 {
+				activeOption = parser.Active.FindOptionByShortName(val)
+			} else if val := option.LongName; len(val) > 0 {
+				activeOption = parser.Active.FindOptionByLongName(val)
+			}
+			isSet := false
+			if activeOption != nil {
+				isSet = activeOption.IsSet()
+			}
 			if !isSet || override {
-				ps := reflect.ValueOf(flags)
+				ps := reflect.ValueOf(data)
 				s := ps.Elem()
 				f := s.FieldByName(optionName)
 
