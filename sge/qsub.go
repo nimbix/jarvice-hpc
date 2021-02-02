@@ -92,7 +92,6 @@ func (x *QSubCommand) Execute(args []string) error {
 	if x.Help {
 		return jarvice.CreateHelpErr()
 	}
-
 	// Set jobscript name
 	jobScriptFilename := "STDIN"
 	submitCommand := "STDIN"
@@ -121,7 +120,6 @@ func (x *QSubCommand) Execute(args []string) error {
 			Script: []byte(submitCommand),
 		}
 	}
-
 	// parse flags from jobscript (CLI flags take precedence;override == false)
 	if jarvice.ParseJobFlags(x,
 		parser,
@@ -139,9 +137,8 @@ func (x *QSubCommand) Execute(args []string) error {
 	// Read JARVICE config for selected cluster
 	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return nil
+		return errors.New("qsub: " + err.Error())
 	}
-
 	queueName := x.Queue
 	// need JARVICE API creds, 'info', and 'name' for /jarvice/queues request
 	urlValues := cluster.GetUrlCreds()
@@ -151,7 +148,6 @@ func (x *QSubCommand) Execute(args []string) error {
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"queues",
 		urlValues); err == nil {
-
 		if err := json.Unmarshal(resp, &jarviceQueues); err != nil {
 			return errors.New("qsub: " + err.Error())
 		}
@@ -287,7 +283,6 @@ func (x *QSubCommand) Execute(args []string) error {
 		Hpc:         myHpcReq,
 		Licenses:    hpcLicenses,
 	}
-	// SgeJobReqDebug(myReq)
 	// Submit job request to JARVICE API
 	var myJobResponse jarvice.JarviceJobResponse
 	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint, myReq); err != nil {

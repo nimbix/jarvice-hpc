@@ -13,7 +13,7 @@ cp *.go $CLIENT
 
 docker run -ti --rm -v "$PWD":/usr/src/jarvice-hpc \
     -w /usr/src/jarvice-hpc \
-    -e GOOS=darwin golang:1.14 \
+    -e GOOS=linux golang:1.14 \
     /bin/bash -c "go get github.com/jessevdk/go-flags \
     && mkdir -p /go/src/jarvice.io \
     && ln -s /usr/src/jarvice-hpc/core /go/src/jarvice.io \
