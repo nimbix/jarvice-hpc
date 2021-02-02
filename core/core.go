@@ -373,7 +373,6 @@ func ReadJarviceConfigTarget() string {
 		return defaultTarget
 	}
 	bytes, _ := ioutil.ReadAll(jsonFile)
-
 	return string(bytes)
 }
 
@@ -613,7 +612,7 @@ func ParseJobFlags(data interface{}, parser *flags.Parser,
 			}
 			isSet := false
 			if activeOption != nil {
-				isSet = activeOption.IsSet()
+				isSet = activeOption.IsSet() && !activeOption.IsSetDefault()
 			}
 			if !isSet || override {
 				ps := reflect.ValueOf(data)
