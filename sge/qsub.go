@@ -120,6 +120,9 @@ func (x *QSubCommand) Execute(args []string) error {
 			Script: []byte(submitCommand),
 		}
 	}
+	// workaround for slice copy
+	sliceMax := len(jobScript.Args) + 10
+	x.Resources = make([]string, sliceMax, sliceMax)
 	// parse flags from jobscript (CLI flags take precedence;override == false)
 	if jarvice.ParseJobFlags(x,
 		parser,

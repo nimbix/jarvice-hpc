@@ -629,6 +629,13 @@ func ParseJobFlags(data interface{}, parser *flags.Parser,
 							}
 						case reflect.String:
 							f.SetString(optionValue.(string))
+						case reflect.Bool:
+							f.SetBool(optionValue.(bool))
+						case reflect.Slice:
+							switch o := optionValue.(type) {
+							case []string:
+								reflect.Copy(f, reflect.ValueOf(o))
+							}
 						default:
 						}
 					}
