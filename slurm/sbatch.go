@@ -272,6 +272,12 @@ func (x *SBatchCommand) Execute(args []string) error {
 		hpcLicenses = new(string)
 		*hpcLicenses = val.Type
 	}
+	// Check for account (i.e. project)
+	var jobProject *string
+	if len(x.Account) > 0 {
+		jobProject = new(string)
+		*jobProject = x.Account
+	}
 
 	// CPU cores
 	coreReq := 0
@@ -339,6 +345,7 @@ func (x *SBatchCommand) Execute(args []string) error {
 		User:        userCreds,
 		Hpc:         myHpcReq,
 		Licenses:    hpcLicenses,
+		JobProject:  jobProject,
 	}
 	// SgeJobReqDebug(myReq)
 	// Submit job request to JARVICE API
