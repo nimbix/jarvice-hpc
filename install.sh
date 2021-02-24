@@ -7,6 +7,8 @@ CLIENT=sge
 INSTALL_PREFIX=${INSTALL_PREFIX:-/usr/local/bin}
 GHPATH="https://github.com/nimbix/jarvice-hpc/releases/download"
 GOOS="linux"
+GOARCH="amd64"
+CLI_NAME="jarvice"
 
 function usage {
     cat <<EOF
@@ -95,12 +97,12 @@ else
     cd "${WORKDIR}"
     wget "${GHPATH}/${VERSION}/SHA256SUMS" &> /dev/null \
         || (echo "$VERSION SHA256SUMS Not Found" && exit 1)
-    wget "${GHPATH}/${VERSION}/jarvice_linux_amd64.tar.gz" &> /dev/null \
+    wget "${GHPATH}/${VERSION}/${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" &> /dev/null \
         || (echo "$VERSION archine Not Found" && exit 1)
     CHECKSUM="-c SHA256SUMS"
     sha256sum ${CHECKSUM} &> /dev/null || shasum -a 256 ${CHECKSUM} &> /dev/null \
         || (echo "Checksum failed" && exit 1)
-    tar -xvf "jarvice_linux_amd64.tar.gz" &> /dev/null
+    tar -xvf "${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" &> /dev/null
 
     [ -e "$WD/$CLIENT-cli" ] || (echo "Missing $CLIENT-cli" && exit 1)
     source "$WD/$CLIENT-cli"
