@@ -26,6 +26,7 @@ type QSubCommand struct {
 	Resources []string `short:"l" description:"job resources. NOTE: -soft treated as hard resources"`
 	Pe        int      `long:"pe" description:"parallel environment job scale.\n-pe <pe-name> <pe-scale>\nNOTE: ranges not support (expect single integer)\n<pe-name> will be discarded"`
 	Queue     string   `short:"q" description:"target queue" default:"default"`
+	Project   string   `short:"P" description:"Specifies the project to which this  job  is  assigned."`
 	Args      struct {
 		JobScript []string `positional-arg-name:"jobscript" description:"SGE job script | job command"`
 		//JobCommand string `positional-arg-name:"command" description:
@@ -226,6 +227,12 @@ func (x *QSubCommand) Execute(args []string) error {
 		hpcLicenses = new(string)
 		*hpcLicenses = val
 	}
+	// Check for project
+	var jobProject *string
+	if len(x.Project) > 0 {
+		jobProject = new(string)
+		*jobProject = x.Project
+	}
 
 	// CPU cores
 	coreReq := 0
@@ -282,6 +289,7 @@ func (x *QSubCommand) Execute(args []string) error {
 		User:        userCreds,
 		Hpc:         myHpcReq,
 		Licenses:    hpcLicenses,
+		JobProject:  jobProject,
 	}
 	// Submit job request to JARVICE API
 	var myJobResponse jarvice.JarviceJobResponse
