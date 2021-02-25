@@ -63,7 +63,7 @@ done
 
 cd ${WORKDIR}
 PACKAGE_NAME="${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
-tar -cvf ${PACKAGE_NAME} ${CLI_NAME}-*
+tar -czvf ${PACKAGE_NAME} ${CLI_NAME}-*
 CHECKSUM="SHA256SUMS"
 rm ${CLI_NAME}-*
 
