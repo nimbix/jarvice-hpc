@@ -122,8 +122,8 @@ else
         || (echo "Checksum failed" && exit 1)
     tar -xvf "${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" ${DEBUG}
 
-    [ -e "$WD/$CLIENT-cli" ] || (echo "Missing $CLIENT-cli" && exit 1)
-    source "$WD/$CLIENT-cli"
+    [ -e "$WD/$CLIENT/$CLIENT-cli" ] || (echo "Missing $CLIENT-cli" && exit 1)
+    source "$WD/$CLIENT/$CLIENT-cli"
 
     cp ${CLI_NAME}-* $WD
     cd $WD
