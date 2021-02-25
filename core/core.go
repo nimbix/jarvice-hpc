@@ -148,6 +148,7 @@ type JarviceJobRequest struct {
 	User        JarviceCreds       `json:"user"`
 	Hpc         HpcReq             `json:"hpc"`
 	Licenses    *string            `json:"licenses,omitempty"`
+	JobProject  *string            `json:"job_project,omitempty"`
 }
 
 // Return from API (jarvice/submit)
