@@ -59,13 +59,14 @@ for client in `cat ${CLIENTS}`; do
     echo
     ./install.sh --no-install --client $client --keep-cli --build
     mv ${CLI_NAME}-${client} ${WORKDIR}
+    cp ${client}/${client}-cli ${WORKDIR}
 done
 
 cd ${WORKDIR}
 PACKAGE_NAME="${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
-tar -czvf ${PACKAGE_NAME} ${CLI_NAME}-*
+tar -czvf ${PACKAGE_NAME} ${CLI_NAME}-* *-cli
 CHECKSUM="SHA256SUMS"
-rm ${CLI_NAME}-*
+rm ${CLI_NAME}-* *-cli
 
 sha256sum  ${PACKAGE_NAME} &> /dev/null > ${CHECKSUM} || shasum -a 256 ${PACKAGE_NAME} > ${CHECKSUM}
 
