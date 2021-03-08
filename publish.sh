@@ -4,7 +4,7 @@ set -e
 
 VERSION="XXX"
 WORKDIR="pub"
-INSTALL_PREFIX=${INSTALL_PREFIX:-/usr/local/bin}
+INSTALL_PREFIX=${INSTALL_PREFIX:-/usr/local}
 CLI_NAME="jarvice"
 CLIENTS="CLIENTS"
 GOOS="linux"
@@ -65,30 +65,44 @@ for client in `cat ${CLIENTS}`; do
     echo
     echo PACKAGING $client
     echo
-    ./install.sh --no-install --client $client --keep-cli --build
+    ./install.sh --no-install --client $client --keep-cli --build --version ${VERSION}
     mv ${CLI_NAME}-${client} ${WORKDIR}
     cp ${client}/${client}-cli ${WORKDIR}
-    RPM_NAME="jarvice-hpc-${client}-${VERSION}"
-    mkdir -p ${RPM_NAME}/${INSTALL_PREFIX}
-    cp ${WORKDIR}/${CLI_NAME}-${client} ${RPM_NAME}/${INSTALL_PREFIX}/${CLI_NAME}
+    RPM_NAME="jarvice-hpc-${client}-${VERSION//v}"
+    mkdir -p ${RPM_NAME}/${INSTALL_PREFIX}/bin
+    cp ${WORKDIR}/${CLI_NAME}-${client} ${RPM_NAME}/${INSTALL_PREFIX}/bin/${CLI_NAME}
     RETDIR=${PWD}
     source "${client}/${client}-cli"
-    cd ${RPM_NAME}/${INSTALL_PREFIX}/
+    cd ${RPM_NAME}/${INSTALL_PREFIX}/bin
     for com in $COMS; do
         ln -s ${CLI_NAME} ${com}
     done
     cd ${RETDIR}
     tar -czvf ${RPM_NAME}.tar.gz ${RPM_NAME}/ &> /dev/null
     rm -rf ${RPM_NAME}/
+done
+
+cd ${WORKDIR}
+PACKAGE_NAME="${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
+tar -czvf ${PACKAGE_NAME} ${CLI_NAME}-* *-cli &> /dev/null
+rm ${CLI_NAME}-* *-cli
+cd ${RETDIR}
+
+RPMARCH="x86_64"
+
+for client in `cat ${CLIENTS}`; do
+    RPM_NAME="jarvice-hpc-${client}-${VERSION//v}"
+    # Create rpms
     cat <<EOF > jarvice-${client}.spec
 Name:           jarvice-hpc-$client
-Version:        ${VERSION}
+Version:        ${VERSION//v}
 Release:        1%{?dist}
 Summary:        JARVICE HPC client for $client
 
 Group:          Development/Tools
 License:        BSD-2-Clause-Views
 Source0:        ${RPM_NAME}.tar.gz
+Prefix:         ${INSTALL_PREFIX}
 
 %description
 JARVICE HPC client
@@ -104,22 +118,11 @@ cp -rfa * %{buildroot}
 
 
 %files
-/*
+${INSTALL_PREFIX}/bin/*
 
 
 %changelog
 EOF
-done
-
-cd ${WORKDIR}
-PACKAGE_NAME="${CLI_NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
-tar -czvf ${PACKAGE_NAME} ${CLI_NAME}-* *-cli &> /dev/null
-rm ${CLI_NAME}-* *-cli
-cd ${RETDIR}
-
-for client in `cat ${CLIENTS}`; do
-    RPM_NAME="jarvice-hpc-${client}-${VERSION}"
-    # Create rpms
     echo
     echo PACKAGING RPM FOR $client
     echo
@@ -129,9 +132,9 @@ for client in `cat ${CLIENTS}`; do
         /bin/bash -c "mkdir -p rpmbuild/SOURCES rpmbuild/SPECS \
         && cp jarvice-$client.spec rpmbuild/SPECS/ \
         && cp "${RPM_NAME}.tar.gz" rpmbuild/SOURCES/ \
-        && rpmbuild --target x86_64 -bb rpmbuild/SPECS/jarvice-$client.spec &> /dev/null"
-    cp rpmbuild/RPMS/x86_64/${RPM_NAME}*.rpm ${WORKDIR}/${RPM_NAME}.rpm
-    PACKAGE_NAME+=" ${RPM_NAME}.rpm"
+        && rpmbuild --target ${RPMARCH} -bb rpmbuild/SPECS/jarvice-$client.spec &> /dev/null"
+    cp rpmbuild/RPMS/${RPMARCH}/${RPM_NAME}*.rpm ${WORKDIR}/${RPM_NAME}.${RPMARCH}.rpm
+    PACKAGE_NAME+=" ${RPM_NAME}.${RPMARCH}.rpm"
 done
 
 CHECKSUM="SHA256SUMS"
