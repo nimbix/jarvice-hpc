@@ -118,6 +118,8 @@ cp -rfa * %{buildroot}
 
 
 %files
+%dir ${INSTALL_PREFIX}
+%dir ${INSTALL_PREFIX}/bin
 ${INSTALL_PREFIX}/bin/*
 
 
