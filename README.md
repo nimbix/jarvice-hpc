@@ -90,6 +90,25 @@ cd jarvice-hpc
 ./install.sh slurm
 ```
 
+#### RPM Packages (v0.0.3+)
+
+```
+rpm -i https://github.com/nimbix/jarvice-hpc/releases/download/<version>/jarvice-hpc-<client>-<version>.x86_64.rpm
+```
+
+Example:
+
+```
+rpm -i https://github.com/nimbix/jarvice-hpc/releases/download/v0.0.3/jarvice-hpc-sge-0.0.3.x86_64.rpm
+```
+
+Package uses `/usr/local` as default installation path. Override using `--prefix` flag:
+
+```
+rpm -i --prefix /opt/jarvice https://github.com/nimbix/jarvice-hpc/releases/download/v0.0.3/jarvice-hpc-sge-0.0.3.x86_64.rpm
+```
+
+
 ### Running SGE jobs
 
 #### Configure JARVICE credentials
@@ -97,19 +116,27 @@ cd jarvice-hpc
 The user credentials to use with the JARVICE API need to be configured before submitting work with a JARVICE-HPC plugin. The following command will write a configuration file to: ${HOME}/.config/jarvice-hpc
 
 ```
-jarvice login -cluster <cluster-name> \
-    -username <jarvice-username> \
-    -apikey <jarvice-apikey> \
-    -endpoint <jarvice-api-url> \
-    -vault <jarvice-vault>
+jarvice login 
+
+Usage:
+  jarvice login [login-OPTIONS] Endpoint cluster username  Apikey
+
+Configuration Options:
+  -h, --help           Show this help message
+
+[login command options]
+      -v, --vault=     JARVICE vault
+
+[login command arguments]
+  Endpoint:            JARVICE API endpoint
+  cluster:             JARVICE cluster   (e.g. default)
+  username :           JARVICE username
+  Apikey:              JARVICE apikey
 ```
-* `cluster-name: user provided name to label cluster in configuartion file (e.g. default)`
-* `jarvice-username: username on target JARVICE platform`
-* `jarvice-apikey: apikey on target JARVICE platform`
+
 *Note* [Find JARVICE username and API key](https://support.nimbix.net/hc/en-us/articles/209770783-Where-do-I-find-my-JARVICE-API-Key-)
-* `jarvice-api-url: endpoint for JARVICE API`
-*Note* [Use jarvice_api.ingressHost configured with JARVICE](https://github.com/nimbix/jarvice-helm/blob/master/Ingress.md#ingress-patterns-and-configuration)
-* `jarvice-vault: JARVICE vault to use with HPC jobs (e.g. drop)`
+
+*Note* Endpoint: [Use jarvice_api.ingressHost configured with JARVICE](https://github.com/nimbix/jarvice-helm/blob/master/Ingress.md#ingress-patterns-and-configuration)
 
 The cluster configured by `jarvice login` will be used by all JARVICE-HPC plugin commands. `ephemeral` vaults are currently not supported
 
