@@ -233,7 +233,7 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
 	config, _ := ReadJarviceConfig()
 	config[cluster] = JarviceCluster{
-		Endpoint: endpoint,
+		Endpoint: strings.TrimSuffix(endpoint, "/"),
 		Vault:    vault,
 		Creds: JarviceCreds{
 			Username: username,
@@ -255,7 +255,10 @@ func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
 }
 
 func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
-	u, _ := url.ParseRequestURI(endpoint)
+	u, err := url.ParseRequestURI(endpoint)
+	if err != nil {
+		return nil, errors.New("Invalid URL endpoint")
+	}
 	u.Path = path.Clean(u.Path + "/jarvice/" + api)
 	u.RawQuery = args.Encode()
 	if resp, err := http.Get(u.String()); err != nil {
