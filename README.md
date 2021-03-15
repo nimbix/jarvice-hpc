@@ -108,6 +108,7 @@ Package uses `/usr/local` as default installation path. Override using `--prefix
 rpm -i --prefix /opt/jarvice https://github.com/nimbix/jarvice-hpc/releases/download/v0.0.3/jarvice-hpc-sge-0.0.3.x86_64.rpm
 ```
 
+Alternatively, RPMs can be directly downloaded from the [releases page](https://github.com/nimbix/jarvice-hpc/releases)
 
 ### Running SGE jobs
 
