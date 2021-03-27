@@ -25,6 +25,7 @@ func (x *QConfCommand) Execute(args []string) error {
 	}
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"queues",
+		cluster.Insecure,
 		cluster.GetUrlCreds()); err == nil {
 
 		jarviceQueues := []string{}

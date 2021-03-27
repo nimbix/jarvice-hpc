@@ -3,6 +3,7 @@ package jarvice
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,6 +91,7 @@ type JobSpec struct {
 
 type JarviceCluster struct {
 	Endpoint string       `json:"jarvice_endpoint"`
+	Insecure bool         `json:"jarvice_insecure"`
 	Vault    string       `json:"jarvice_vault"`
 	Creds    JarviceCreds `json:"jarvice_user"`
 }
@@ -184,14 +186,23 @@ type JarviceQueue struct {
 
 type JarviceQueues = map[string]JarviceQueue
 
+func setSecurePolicy(insecure bool) {
+	if insecure {
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
+}
+
 // Submit job request to JARVICE API
-func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
+func JarviceSubmitJob(url string, insecure bool, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
 
 	submitErrMsg := "core: JARVICE submit failed: "
 	jsonBytes, err := json.Marshal(jobReq)
 	if err != nil {
 		return JarviceJobResponse{}, errors.New(submitErrMsg + "marshal JSON")
 	}
+	setSecurePolicy(insecure)
 	req, err := http.NewRequest("POST", url+"/jarvice/submit",
 		bytes.NewBuffer(jsonBytes))
 	if err != nil {
@@ -230,10 +241,12 @@ func JarviceSubmitJob(url string, jobReq JarviceJobRequest) (JarviceJobResponse,
 	return jarviceResponse, nil
 }
 
-func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
+func HpcLogin(endpoint string, insecure bool, cluster, username, apikey,
+	vault string) (err error) {
 	config, _ := ReadJarviceConfig()
 	config[cluster] = JarviceCluster{
 		Endpoint: strings.TrimSuffix(endpoint, "/"),
+		Insecure: insecure,
 		Vault:    vault,
 		Creds: JarviceCreds{
 			Username: username,
@@ -254,13 +267,15 @@ func HpcLogin(endpoint, cluster, username, apikey, vault string) (err error) {
 	return
 }
 
-func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
+func ApiReq(endpoint, api string, insecure bool,
+	args url.Values) (body []byte, err error) {
 	u, err := url.ParseRequestURI(endpoint)
 	if err != nil {
 		return nil, errors.New("Invalid URL endpoint")
 	}
 	u.Path = path.Clean(u.Path + "/jarvice/" + api)
 	u.RawQuery = args.Encode()
+	setSecurePolicy(insecure)
 	if resp, err := http.Get(u.String()); err != nil {
 		return nil, err
 	} else {
@@ -286,7 +301,8 @@ func ApiReq(endpoint, api string, args url.Values) (body []byte, err error) {
 func testJarviceCreds(cluster string, config JarviceConfig) bool {
 	// Test credential using JARVICE API endpoint that requires authorization
 	if myCluster, ok := config[cluster]; ok {
-		if _, err := ApiReq(myCluster.Endpoint, "machines", myCluster.GetUrlCreds()); err == nil {
+		if _, err := ApiReq(myCluster.Endpoint, "machines", myCluster.Insecure,
+			myCluster.GetUrlCreds()); err == nil {
 			return true
 		}
 	}
@@ -295,7 +311,8 @@ func testJarviceCreds(cluster string, config JarviceConfig) bool {
 
 func testJarviceEndpoint(cluster string, config JarviceConfig) bool {
 	if myCluster, ok := config[cluster]; ok {
-		if _, err := ApiReq(myCluster.Endpoint, "live", url.Values{}); err == nil {
+		if _, err := ApiReq(myCluster.Endpoint, "live", myCluster.Insecure,
+			url.Values{}); err == nil {
 			return true
 		}
 	}

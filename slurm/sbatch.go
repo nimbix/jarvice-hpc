@@ -164,6 +164,7 @@ func (x *SBatchCommand) Execute(args []string) error {
 	jarviceQueues := make(map[string]jarvice.JarviceQueue)
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"queues",
+		cluster.Insecure,
 		urlValues); err == nil {
 
 		if err := json.Unmarshal(resp, &jarviceQueues); err != nil {
@@ -350,7 +351,8 @@ func (x *SBatchCommand) Execute(args []string) error {
 	// SgeJobReqDebug(myReq)
 	// Submit job request to JARVICE API
 	var myJobResponse jarvice.JarviceJobResponse
-	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint, myReq); err != nil {
+	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint,
+		cluster.Insecure, myReq); err != nil {
 		return errors.New("sbatch: " + err.Error())
 	} else {
 		myJobResponse = jobResponse

@@ -19,9 +19,10 @@ type JarviceCommand struct {
 }
 
 type JarviceLoginCommand struct {
-	Config JarviceConfigFlags `group:"Configuration Options" hidden:"true"`
-	Vault  string             `short:"v" long:"vault" description:"JARVICE vault" default:"ephemeral"`
-	Args   struct {
+	Config   JarviceConfigFlags `group:"Configuration Options" hidden:"true"`
+	Vault    string             `short:"v" long:"vault" description:"JARVICE vault" default:"ephemeral"`
+	Insecure bool               `short:"k" long:"insecure" description:"proceed if server configuration is considered insecure"`
+	Args     struct {
 		Endpoint string `postitional-arg-name:"endpoint" description:"JARVICE API endpoint"`
 		Cluster  string `positional-arg-name:"cluster" description:"JARVICE cluster"`
 		Username string `positional-arg-name:"username "description:"JARVICE username"`
@@ -55,8 +56,8 @@ func (x *JarviceLoginCommand) Execute(args []string) error {
 	if x.Config.Help {
 		return jarvice.CreateHelpErr()
 	}
-	return jarvice.HpcLogin(x.Args.Endpoint, x.Args.Cluster, x.Args.Username,
-		x.Args.Apikey, x.Vault)
+	return jarvice.HpcLogin(x.Args.Endpoint, x.Insecure, x.Args.Cluster,
+		x.Args.Username, x.Args.Apikey, x.Vault)
 }
 
 func (x *JarviceVaultCommand) Execute(args []string) error {

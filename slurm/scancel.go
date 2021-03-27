@@ -32,6 +32,7 @@ func (x *SCancelCommand) Execute(args []string) error {
 	}
 	if _, err := jarvice.ApiReq(cluster.Endpoint,
 		api,
+		cluster.Insecure,
 		urlValues); err == nil {
 
 		return nil
