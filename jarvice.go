@@ -16,6 +16,7 @@ type JarviceCommand struct {
 	Login   JarviceLoginCommand   `command:"login"`
 	Vault   JarviceVaultCommand   `command:"vault"`
 	Cluster JarviceClusterCommand `command:"cluster"`
+	Live    JarviceLiveCommand    `command:"live"`
 }
 
 type JarviceLoginCommand struct {
@@ -41,6 +42,13 @@ type JarviceClusterCommand struct {
 	Args   struct {
 		Cluster string `positional-arg-name:"cluster" description:"JARVICE cluster"`
 	} `positional-args:"true"`
+}
+
+type JarviceLiveCommand struct {
+	Config JarviceConfigFlags `group:"Configuration Options" hidden:"true"`
+	Args   struct {
+		Cluster string `positional-arg-name:"cluster" description:"JARVICE cluster"`
+	} `positional-args:"true" required:"1"`
 }
 
 var jarviceCommand JarviceCommand
@@ -90,6 +98,16 @@ func (x *JarviceClusterCommand) Execute(args []string) error {
 		return errors.New(x.Args.Cluster + " configuration does not exits." +
 			" Setup config using: jarvice login")
 	}
+}
+
+func (x *JarviceLiveCommand) Execute(args []string) error {
+	if x.Config.Help {
+		return jarvice.CreateHelpErr()
+	}
+	if err := jarvice.HpcLive(x.Args.Cluster); err != nil {
+		return fmt.Errorf("live: %w", err)
+	}
+	return nil
 }
 
 func init() {

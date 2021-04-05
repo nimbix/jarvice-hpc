@@ -267,11 +267,32 @@ func HpcLogin(endpoint string, insecure bool, cluster, username, apikey,
 	return
 }
 
+func HpcLive(cluster string) (err error) {
+	config, _ := ReadJarviceConfig()
+	if _, ok := config[cluster]; !ok {
+		return fmt.Errorf("%s cluster does not exists", cluster)
+	}
+	if !testJarviceEndpoint(cluster, config) {
+		err = errors.New("jarvice: JARVICE endpoint not live")
+		return
+	}
+	fmt.Println(cluster, "is live")
+	if !testJarviceCreds(cluster, config) {
+		err = errors.New("jarvice: unable to validate JARVICE credentials")
+		return
+	}
+	fmt.Println(config[cluster].Creds.Username, "logged in")
+	return
+}
+
 func ApiReq(endpoint, api string, insecure bool,
 	args url.Values) (body []byte, err error) {
 	u, err := url.ParseRequestURI(endpoint)
 	if err != nil {
 		return nil, errors.New("Invalid URL endpoint")
+	}
+	if u == nil {
+		return nil, fmt.Errorf("Invalid syntax %s", endpoint)
 	}
 	u.Path = path.Clean(u.Path + "/jarvice/" + api)
 	u.RawQuery = args.Encode()
