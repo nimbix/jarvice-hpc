@@ -244,8 +244,15 @@ func JarviceSubmitJob(url string, insecure bool, jobReq JarviceJobRequest) (Jarv
 func HpcLogin(endpoint string, insecure bool, cluster, username, apikey,
 	vault string) (err error) {
 	config, _ := ReadJarviceConfig()
+	var jarviceAPI string
+	if req, herr := http.NewRequest("GET", endpoint, nil); herr != nil {
+		err = fmt.Errorf("jarvice: unable to parse %s: %w", endpoint, herr)
+		return
+	} else {
+		jarviceAPI = req.URL.String()
+	}
 	config[cluster] = JarviceCluster{
-		Endpoint: strings.TrimSuffix(endpoint, "/"),
+		Endpoint: jarviceAPI,
 		Insecure: insecure,
 		Vault:    vault,
 		Creds: JarviceCreds{
