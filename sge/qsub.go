@@ -151,6 +151,7 @@ func (x *QSubCommand) Execute(args []string) error {
 	jarviceQueues := make(map[string]jarvice.JarviceQueue)
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"queues",
+		cluster.Insecure,
 		urlValues); err == nil {
 		if err := json.Unmarshal(resp, &jarviceQueues); err != nil {
 			return errors.New("qsub: " + err.Error())
@@ -296,7 +297,8 @@ func (x *QSubCommand) Execute(args []string) error {
 	}
 	// Submit job request to JARVICE API
 	var myJobResponse jarvice.JarviceJobResponse
-	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint, myReq); err != nil {
+	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint,
+		cluster.Insecure, myReq); err != nil {
 		return errors.New("qsub: " + err.Error())
 	} else {
 		myJobResponse = jobResponse

@@ -27,6 +27,7 @@ func (x *SQueueCommand) Execute(args []string) error {
 	}
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"jobs",
+		cluster.Insecure,
 		cluster.GetUrlCreds()); err == nil {
 
 		var jarviceJobs jarvice.JarviceJobs

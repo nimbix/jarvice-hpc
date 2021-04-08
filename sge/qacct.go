@@ -58,6 +58,7 @@ func (x *QAcctCommand) Execute(args []string) error {
 	urlValues.Add("completed", "true")
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"jobs",
+		cluster.Insecure,
 		urlValues); err == nil {
 		var jarviceJobs jarvice.JarviceJobs
 		if err := json.Unmarshal(resp, &jarviceJobs); err != nil {

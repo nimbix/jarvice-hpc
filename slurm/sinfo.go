@@ -43,6 +43,7 @@ func (x *SInfoCommand) Execute(args []string) error {
 	urlValues.Add("info", "true")
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"queues",
+		cluster.Insecure,
 		urlValues); err == nil {
 
 		jarviceQueues := jarvice.JarviceQueues{}

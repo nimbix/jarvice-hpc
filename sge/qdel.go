@@ -32,6 +32,7 @@ func (x *QDelCommand) Execute(args []string) error {
 	}
 	if _, err := jarvice.ApiReq(cluster.Endpoint,
 		api,
+		cluster.Insecure,
 		urlValues); err == nil {
 
 		return nil
