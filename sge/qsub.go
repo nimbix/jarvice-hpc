@@ -39,15 +39,35 @@ var jobScriptParser = flags.NewNamedParser(jarvice.JobScriptArg,
 
 var jobScriptParserCommand QSubCommand
 
+func splitAtCommas(s string) []string {
+	res := []string{}
+	var beg int
+	var inString bool
+
+	for i := 0; i < len(s); i++ {
+		if s[i] == ',' && !inString {
+			res = append(res, s[beg:i])
+			beg = i + 1
+		} else if s[i] == '"' {
+			if !inString {
+				inString = true
+			} else if i > 0 && s[i-1] != '\\' {
+				inString = false
+			}
+		}
+	}
+	return append(res, s[beg:])
+}
+
 func parseSgeResources(resources []string) map[string]string {
 	res := map[string]string{}
 
 	for _, resource := range resources {
-		for _, flag := range strings.Split(resource, ",") {
+		for _, flag := range splitAtCommas(resource) {
 			split := strings.Split(flag, "=")
 			// save valid pairs (foo=bar)
 			if len(split) == 2 {
-				res[split[0]] = split[1]
+				res[split[0]] = strings.Trim(split[1], "\"")
 			}
 		}
 	}
