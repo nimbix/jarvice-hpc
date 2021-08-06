@@ -213,6 +213,26 @@ func (x *QSubCommand) Execute(args []string) error {
 	}
 	// Set SGE Output Environment Variables
 	sgeEnvs := make(map[string]string)
+	blacklisted_envs := map[string]struct{}{
+		"PATH":     struct{}{},
+		"USER":     struct{}{},
+		"HOME":     struct{}{},
+		"EDITOR":   struct{}{},
+		"UID":      struct{}{},
+		"TERM":     struct{}{},
+		"SHELL":    struct{}{},
+		"HOSTNAME": struct{}{},
+	}
+	for _, env := range os.Environ() {
+		parts := strings.Split(env, "=")
+		if len(parts) == 2 {
+			if _, ok := blacklisted_envs[parts[0]]; !ok &&
+				!strings.Contains(parts[0], "BASH_FUNC") &&
+				!strings.Contains(parts[0], "KUBERNETES_") {
+				sgeEnvs[parts[0]] = parts[1]
+			}
+		}
+	}
 	myHpcReq := jarvice.HpcReq{
 		// sudo is required to edit /etc/hosts (best effort)
 		JobEnvConfig: `join () { local IFS="$1"; shift; echo "$*"; };` +
