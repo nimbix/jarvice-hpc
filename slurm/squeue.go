@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strconv"
 
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type SQueueCommand struct {

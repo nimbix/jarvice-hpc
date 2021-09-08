@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/jessevdk/go-flags"
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type QSubCommand struct {

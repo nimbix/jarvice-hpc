@@ -1,9 +1,8 @@
 package main
 
 import (
-	"fmt"
-
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
+	logger "jarvice.io/jarvice-hpc/logger"
 )
 
 type TemplateCommand struct {
@@ -16,7 +15,17 @@ func (x *TemplateCommand) Execute(args []string) error {
 	if x.Help {
 		return jarvice.CreateHelpErr()
 	}
-	fmt.Println("Hello World")
+	msg := "Hello World"
+	// DEBUG message
+	logger.DebugPrintf(msg)
+	// INFO message
+	logger.InfoPrintf(msg)
+	// WARNING message
+	logger.WarningPrintf(msg)
+	// ERROR message
+	logger.ErrorPrintf(msg)
+	// CRITICAL message
+	logger.CriticalPrintf(msg)
 	return nil
 }
 

@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
+	logger "jarvice.io/jarvice-hpc/logger"
 )
 
 type JarviceConfigFlags struct {
@@ -64,6 +65,7 @@ func (x *JarviceLoginCommand) Execute(args []string) error {
 	if x.Config.Help {
 		return jarvice.CreateHelpErr()
 	}
+	logger.InfoPrintf("processing HPC login")
 	return jarvice.HpcLogin(x.Args.Endpoint, x.Insecure, x.Args.Cluster,
 		x.Args.Username, x.Args.Apikey, x.Vault)
 }
@@ -72,6 +74,7 @@ func (x *JarviceVaultCommand) Execute(args []string) error {
 	if x.Config.Help {
 		return jarvice.CreateHelpErr()
 	}
+	logger.InfoPrintf("processing HPC vault")
 	return jarvice.HpcVault(x.Vault)
 }
 
@@ -79,6 +82,7 @@ func (x *JarviceClusterCommand) Execute(args []string) error {
 	if x.Config.Help {
 		return jarvice.CreateHelpErr()
 	}
+	logger.InfoPrintf("setup JarviceXE config")
 	config, _ := jarvice.ReadJarviceConfig()
 	if x.List {
 		if len(config) == 0 {
@@ -104,6 +108,7 @@ func (x *JarviceLiveCommand) Execute(args []string) error {
 	if x.Config.Help {
 		return jarvice.CreateHelpErr()
 	}
+	logger.InfoPrintf("Validating cluster configuration")
 	if err := jarvice.HpcLive(x.Args.Cluster); err != nil {
 		return fmt.Errorf("live: %w", err)
 	}

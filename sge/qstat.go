@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type QStatCommand struct {

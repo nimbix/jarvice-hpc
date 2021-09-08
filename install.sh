@@ -98,8 +98,9 @@ if [ "$BUILD" = true ]; then
         -e CGO_ENABLED=0 \
         golang:1.14 \
         /bin/bash -c "go get github.com/jessevdk/go-flags \
-        && mkdir -p /go/src/jarvice.io \
-        && ln -s /usr/src/jarvice-hpc/core /go/src/jarvice.io \
+        && mkdir -p /go/src/jarvice.io/jarvice-hpc \
+        && ln -s /usr/src/jarvice-hpc/core /go/src/jarvice.io/jarvice-hpc/core \
+        && ln -s /usr/src/jarvice-hpc/logger /go/src/jarvice.io/jarvice-hpc/logger \
         && go build $GO_BUILD_OPT $CLIENT/*.go ${DEBUG}"
 
     echo "BUILD COMPLETE"

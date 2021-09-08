@@ -22,6 +22,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/jessevdk/go-flags"
+
+	logger "jarvice.io/jarvice-hpc/logger"
 )
 
 const (
@@ -188,6 +190,7 @@ type JarviceQueues = map[string]JarviceQueue
 
 func setSecurePolicy(insecure bool) {
 	if insecure {
+		logger.WarningPrintf("setting insecure transport protocol")
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -196,20 +199,21 @@ func setSecurePolicy(insecure bool) {
 
 // Submit job request to JARVICE API
 func JarviceSubmitJob(url string, insecure bool, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
-
+	logger.DebugPrintf("preparing job submission for JarviceXE API")
 	submitErrMsg := "core: JARVICE submit failed: "
 	jsonBytes, err := json.Marshal(jobReq)
 	if err != nil {
 		return JarviceJobResponse{}, errors.New(submitErrMsg + "marshal JSON")
 	}
 	setSecurePolicy(insecure)
+	logger.InfoPrintf("sending JarviceXE API request to %s", url)
 	req, err := http.NewRequest("POST", url+"/jarvice/submit",
 		bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		return JarviceJobResponse{}, errors.New(submitErrMsg + "http request")
 	}
 	req.Header.Set("Content-Type", "application/json")
-
+	logger.DebugObj("JarviceXE HPC job request", jobReq)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -218,7 +222,9 @@ func JarviceSubmitJob(url string, insecure bool, jobReq JarviceJobRequest) (Jarv
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		logger.WarningPrintf("HTTP requests failed: %v", resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
+		logger.DebugObj("JarviceXE response", body)
 		errResp := map[string]string{}
 		var errMsg string
 		if err := json.Unmarshal([]byte(body), &errResp); err == nil {
@@ -260,6 +266,7 @@ func HpcLogin(endpoint string, insecure bool, cluster, username, apikey,
 			Apikey:   apikey,
 		},
 	}
+	logger.DebugObj("saving cluser", config[cluster])
 	if !testJarviceEndpoint(cluster, config) {
 		err = errors.New("jarvice: JARVICE endpoint not live")
 		return
@@ -288,7 +295,7 @@ func HpcLive(cluster string) (err error) {
 		err = errors.New("jarvice: unable to validate JARVICE credentials")
 		return
 	}
-	fmt.Println(config[cluster].Creds.Username, "logged in")
+	logger.InfoPrintf("%v logged in", config[cluster].Creds.Username)
 	return
 }
 
@@ -302,7 +309,9 @@ func ApiReq(endpoint, api string, insecure bool,
 		return nil, fmt.Errorf("Invalid syntax %s", endpoint)
 	}
 	u.Path = path.Clean(u.Path + "/jarvice/" + api)
+	logger.InfoPrintf("sending JarviceXE API request to %v", u.Path)
 	u.RawQuery = args.Encode()
+	logger.DebugObj("HTTP raw request", u.RawQuery)
 	setSecurePolicy(insecure)
 	if resp, err := http.Get(u.String()); err != nil {
 		return nil, err
@@ -312,6 +321,8 @@ func ApiReq(endpoint, api string, insecure bool,
 			return nil, errors.New("HTTP IO error")
 		} else {
 			if resp.StatusCode != http.StatusOK {
+				logger.WarningPrintf("HTTP requests failed: %v", resp.Status)
+				logger.DebugObj("JarviceXE response", body)
 				respMap := map[string]string{}
 				json.Unmarshal(body, &respMap)
 				errMsg := ""
@@ -531,6 +542,9 @@ func ParseJobScript(directive, filename string) (JobScript, error) {
 		}
 		script = append(script, scanner.Bytes()...)
 		script = append(script, '\n')
+		logger.DebugPrintf("HPC job script:\n%v", script)
+		logger.DebugPrintf("HPC job shell: %v", shell)
+		logger.DebugPrintf("HPC job args: %v", args)
 	}
 	return JobScript{
 		Shell:  shell,

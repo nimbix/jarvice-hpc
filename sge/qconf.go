@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type QConfCommand struct {
