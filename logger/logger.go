@@ -2,11 +2,10 @@ package logger
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -24,13 +23,15 @@ const (
 )
 
 var (
-	Log *log.Logger
+	Log *log.Logger = nil
 )
 
 func init() {
-	logPath := "/tmp/"
+	logPath := "/tmp"
 	if env := os.Getenv(LOG_PATH); len(env) > 0 {
 		logPath = env
+	} else if home := os.Getenv("HOME"); len(home) > 0 {
+		logPath = home + "/.config/jarvice-hpc"
 	}
 	timeout := LOG_DEFAULT_TIMEOUT
 	if env := os.Getenv(LOG_TIMEOUT); len(env) > 0 {
@@ -38,7 +39,14 @@ func init() {
 			timeout = t
 		}
 	}
-	logfile := logPath + "jarvice-hpc.log"
+	// Create log directory if needed
+	if err := os.MkdirAll(filepath.Clean(logPath), 0700); err != nil {
+		log.Printf("logger cannot create directory: %v",
+			fmt.Errorf("LogWriter: MkdirAll: %w", err))
+		log.Printf("logging disable")
+		return
+	}
+	logfile := filepath.Clean(logPath + "/jarvice-hpc.log")
 	if f, err := os.Open(logfile); err == nil {
 		scanner := bufio.NewScanner(f)
 		scanner.Scan()
@@ -52,19 +60,25 @@ func init() {
 		}
 	}
 	f, err := os.OpenFile(logfile,
-		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 	if err != nil {
 		log.Printf("logger cannot open file: %v",
 			fmt.Errorf("LogWriter: OpenFile: %w", err))
+		log.Printf("logging disabled")
+		return
 	}
 	if stat, serr := f.Stat(); serr == nil {
 		if stat.Size() == 0 {
 			f.WriteString(time.Now().Format(time.RFC3339) + "\n")
 			f.Sync()
 		}
+	} else {
+		log.Printf("logger cannot write to logfile: %v",
+			fmt.Errorf("LogWriter: Stat: %w", serr))
+		log.Printf("logging disabled")
+		return
 	}
-	wrt := io.MultiWriter(os.Stderr, f)
-	Log = log.New(wrt, "", log.LstdFlags)
+	Log = log.New(f, "", log.LstdFlags)
 }
 
 func LogLevel() int {
@@ -91,14 +105,19 @@ func getLogLevel(level int) string {
 }
 
 func DebugObj(name string, v interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_DEBUG_LOGGING
 	if LogLevel() <= level {
-		data, _ := json.MarshalIndent(v, "", " ")
-		Log.Printf("%s %s:\n%s\n", getLogLevel(level), name, data)
+		Log.Printf("%s %s:\n%+v\n", getLogLevel(level), name, v)
 	}
 }
 
 func DebugPrintf(format string, a ...interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_DEBUG_LOGGING
 	if LogLevel() <= level {
 		prefix := getLogLevel(level) + " "
@@ -107,14 +126,19 @@ func DebugPrintf(format string, a ...interface{}) {
 }
 
 func InfoObj(name string, v interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_INFO_LOGGING
 	if LogLevel() <= level {
-		data, _ := json.MarshalIndent(v, "", " ")
-		Log.Printf("%s %s:\n%s\n", getLogLevel(level), name, data)
+		Log.Printf("%s %s:\n%+v\n", getLogLevel(level), name, v)
 	}
 }
 
 func InfoPrintf(format string, a ...interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_INFO_LOGGING
 	if LogLevel() <= level {
 		prefix := getLogLevel(level) + " "
@@ -123,14 +147,19 @@ func InfoPrintf(format string, a ...interface{}) {
 }
 
 func WarningObj(name string, v interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_WARNING_LOGGING
 	if LogLevel() <= level {
-		data, _ := json.MarshalIndent(v, "", " ")
-		Log.Printf("%s %s:\n%s\n", getLogLevel(level), name, data)
+		Log.Printf("%s %s:\n%+v\n", getLogLevel(level), name, v)
 	}
 }
 
 func WarningPrintf(format string, a ...interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_WARNING_LOGGING
 	if LogLevel() <= level {
 		prefix := getLogLevel(level) + " "
@@ -139,14 +168,19 @@ func WarningPrintf(format string, a ...interface{}) {
 }
 
 func ErrorObj(name string, v interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_ERROR_LOGGING
 	if LogLevel() <= level {
-		data, _ := json.MarshalIndent(v, "", " ")
-		Log.Printf("%s %s:\n%s\n", getLogLevel(level), name, data)
+		Log.Printf("%s %s:\n%+v\n", getLogLevel(level), name, v)
 	}
 }
 
 func ErrorPrintf(format string, a ...interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_ERROR_LOGGING
 	if LogLevel() <= level {
 		prefix := getLogLevel(level) + " "
@@ -155,14 +189,19 @@ func ErrorPrintf(format string, a ...interface{}) {
 }
 
 func CriticalObj(name string, v interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_CRITICAL_LOGGING
 	if LogLevel() <= level {
-		data, _ := json.MarshalIndent(v, "", " ")
-		Log.Printf("%s %s:\n%s\n", getLogLevel(level), name, data)
+		Log.Printf("%s %s:\n%+v\n", getLogLevel(level), name, v)
 	}
 }
 
 func CriticalPrintf(format string, a ...interface{}) {
+	if Log == nil {
+		return
+	}
 	level := JARVICE_CRITICAL_LOGGING
 	if LogLevel() <= level {
 		prefix := getLogLevel(level) + " "

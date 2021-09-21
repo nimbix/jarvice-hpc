@@ -117,7 +117,7 @@ type JarviceApplication struct {
 	Command    string                 `json:"command"`
 	Walltime   string                 `json:"walltime,omitempty"`
 	Geometry   string                 `json:"geometry"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Parameters map[string]interface{} `json:"parameters,omitempty"`
 }
 
 type JarviceMachine struct {
@@ -137,7 +137,7 @@ type HpcReq struct {
 	JobShell     string            `json:"hpc_job_shell"`
 	Queue        string            `json:"hpc_queue"`
 	Umask        int               `json:"hpc_umask"`
-	Envs         map[string]string `json:"hpc_envs"`
+	Envs         map[string]string `json:"hpc_envs,omitempty"`
 	Resources    map[string]string `json:"hpc_resources"`
 }
 
@@ -198,22 +198,31 @@ func setSecurePolicy(insecure bool) {
 }
 
 // Submit job request to JARVICE API
-func JarviceSubmitJob(url string, insecure bool, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
+func JarviceSubmitJob(endpoint string, insecure bool, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
 	logger.DebugPrintf("preparing job submission for JarviceXE API")
 	submitErrMsg := "core: JARVICE submit failed: "
+	u, uerr := url.ParseRequestURI(endpoint)
+	if uerr != nil {
+		return JarviceJobResponse{}, errors.New("Invalid URL endpoint")
+	}
+	if u == nil {
+		return JarviceJobResponse{}, fmt.Errorf("Invalid syntax %s", endpoint)
+	}
+	u.Path = path.Clean(u.Path + "/jarvice/submit")
 	jsonBytes, err := json.Marshal(jobReq)
 	if err != nil {
 		return JarviceJobResponse{}, errors.New(submitErrMsg + "marshal JSON")
 	}
 	setSecurePolicy(insecure)
-	logger.InfoPrintf("sending JarviceXE API request to %s", url)
-	req, err := http.NewRequest("POST", url+"/jarvice/submit",
-		bytes.NewBuffer(jsonBytes))
+	logger.InfoPrintf("sending JarviceXE API request to %s", endpoint)
+	buf := bytes.NewBuffer(jsonBytes)
+	logger.DebugPrintf("JarviceXE HPC job requests:\n%v", jobReq)
+	req, err := http.NewRequest("POST", u.String(),
+		buf)
 	if err != nil {
 		return JarviceJobResponse{}, errors.New(submitErrMsg + "http request")
 	}
 	req.Header.Set("Content-Type", "application/json")
-	logger.DebugObj("JarviceXE HPC job request", jobReq)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -224,10 +233,10 @@ func JarviceSubmitJob(url string, insecure bool, jobReq JarviceJobRequest) (Jarv
 	if resp.StatusCode != http.StatusOK {
 		logger.WarningPrintf("HTTP requests failed: %v", resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
-		logger.DebugObj("JarviceXE response", body)
 		errResp := map[string]string{}
 		var errMsg string
 		if err := json.Unmarshal([]byte(body), &errResp); err == nil {
+			logger.DebugObj("JarviceXE response:", errResp)
 			if msg, ok := errResp["error"]; ok {
 				errMsg = ": " + msg
 			}
@@ -296,6 +305,7 @@ func HpcLive(cluster string) (err error) {
 		return
 	}
 	logger.InfoPrintf("%v logged in", config[cluster].Creds.Username)
+	fmt.Printf("%v logged in\n", config[cluster].Creds.Username)
 	return
 }
 
@@ -322,10 +332,10 @@ func ApiReq(endpoint, api string, insecure bool,
 		} else {
 			if resp.StatusCode != http.StatusOK {
 				logger.WarningPrintf("HTTP requests failed: %v", resp.Status)
-				logger.DebugObj("JarviceXE response", body)
 				respMap := map[string]string{}
 				json.Unmarshal(body, &respMap)
 				errMsg := ""
+				logger.DebugObj("JarviceXE response", respMap)
 				if msg, ok := respMap["error"]; ok {
 					errMsg = msg
 				}
@@ -542,7 +552,7 @@ func ParseJobScript(directive, filename string) (JobScript, error) {
 		}
 		script = append(script, scanner.Bytes()...)
 		script = append(script, '\n')
-		logger.DebugPrintf("HPC job script:\n%v", script)
+		logger.DebugPrintf("HPC job script:\n%v", string(script))
 		logger.DebugPrintf("HPC job shell: %v", shell)
 		logger.DebugPrintf("HPC job args: %v", args)
 	}
