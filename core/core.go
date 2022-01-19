@@ -197,6 +197,12 @@ func setSecurePolicy(insecure bool) {
 	}
 }
 
+func sanitizeJobReq(req JarviceJobRequest) JarviceJobRequest {
+	tmp := req
+	tmp.User.Apikey = "XXX"
+	return tmp
+}
+
 // Submit job request to JARVICE API
 func JarviceSubmitJob(endpoint string, insecure bool, jobReq JarviceJobRequest) (JarviceJobResponse, error) {
 	logger.DebugPrintf("preparing job submission for JarviceXE API")
@@ -216,7 +222,8 @@ func JarviceSubmitJob(endpoint string, insecure bool, jobReq JarviceJobRequest) 
 	setSecurePolicy(insecure)
 	logger.InfoPrintf("sending JarviceXE API request to %s", endpoint)
 	buf := bytes.NewBuffer(jsonBytes)
-	logger.DebugPrintf("JarviceXE HPC job requests:\n%v", jobReq)
+	logger.DebugPrintf("JarviceXE HPC job requests:\n%v",
+		sanitizeJobReq(jobReq))
 	req, err := http.NewRequest("POST", u.String(),
 		buf)
 	if err != nil {
@@ -308,6 +315,11 @@ func HpcLive(cluster string) (err error) {
 	fmt.Printf("%v logged in\n", config[cluster].Creds.Username)
 	return
 }
+func sanitizeApikey(u *url.URL) string {
+	args := u.Query()
+	args.Set("apikey", "XXX")
+	return args.Encode()
+}
 
 func ApiReq(endpoint, api string, insecure bool,
 	args url.Values) (body []byte, err error) {
@@ -321,7 +333,7 @@ func ApiReq(endpoint, api string, insecure bool,
 	u.Path = path.Clean(u.Path + "/jarvice/" + api)
 	logger.InfoPrintf("sending JarviceXE API request to %v", u.Path)
 	u.RawQuery = args.Encode()
-	logger.DebugObj("HTTP raw request", u.RawQuery)
+	logger.DebugObj("HTTP raw request", sanitizeApikey(u))
 	setSecurePolicy(insecure)
 	if resp, err := http.Get(u.String()); err != nil {
 		return nil, err
