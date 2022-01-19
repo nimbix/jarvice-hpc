@@ -27,6 +27,8 @@ type QSubCommand struct {
 	Pe        int      `long:"pe" description:"parallel environment job scale.\n-pe <pe-name> <pe-scale>\nNOTE: ranges not support (expect single integer)\n<pe-name> will be discarded"`
 	Queue     string   `short:"q" description:"target queue" default:"default"`
 	Project   string   `short:"P" description:"Specifies the project to which this  job  is  assigned."`
+	Output    string   `short:"o" description:"Output file."`
+	Error     string   `short:"e" description:"Error file."`
 	Args      struct {
 		JobScript []string `positional-arg-name:"jobscript" description:"SGE job script | job command"`
 		//JobCommand string `positional-arg-name:"command" description:
@@ -120,6 +122,7 @@ func (x *QSubCommand) Execute(args []string) error {
 		jobScriptFilename = x.Args.JobScript[0]
 	} else if len(x.Args.JobScript) > 1 {
 		submitCommand = strings.Join(x.Args.JobScript, " ")
+		jobScriptFilename = ""
 	}
 
 	// validate binary flag
@@ -187,6 +190,15 @@ func (x *QSubCommand) Execute(args []string) error {
 
 	if len(x.Shell) > 0 {
 		jobScript.Shell = x.Shell
+	}
+	// Setup I/O redirect using block { ... }
+	jobScript.Script = append([]byte{'{', '\n'}, jobScript.Script...)
+	jobScript.Script = append(jobScript.Script, '\n', '}')
+	if len(x.Output) > 0 {
+		jobScript.Script = append(jobScript.Script, []byte(" >"+x.Output)...)
+	}
+	if len(x.Error) > 0 {
+		jobScript.Script = append(jobScript.Script, []byte(" 2>"+x.Error)...)
 	}
 
 	var cwd string
