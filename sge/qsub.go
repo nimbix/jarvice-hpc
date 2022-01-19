@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/jessevdk/go-flags"
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type QSubCommand struct {
@@ -39,15 +39,35 @@ var jobScriptParser = flags.NewNamedParser(jarvice.JobScriptArg,
 
 var jobScriptParserCommand QSubCommand
 
+func splitAtCommas(s string) []string {
+	res := []string{}
+	var beg int
+	var inString bool
+
+	for i := 0; i < len(s); i++ {
+		if s[i] == ',' && !inString {
+			res = append(res, s[beg:i])
+			beg = i + 1
+		} else if s[i] == '"' {
+			if !inString {
+				inString = true
+			} else if i > 0 && s[i-1] != '\\' {
+				inString = false
+			}
+		}
+	}
+	return append(res, s[beg:])
+}
+
 func parseSgeResources(resources []string) map[string]string {
 	res := map[string]string{}
 
 	for _, resource := range resources {
-		for _, flag := range strings.Split(resource, ",") {
+		for _, flag := range splitAtCommas(resource) {
 			split := strings.Split(flag, "=")
 			// save valid pairs (foo=bar)
 			if len(split) == 2 {
-				res[split[0]] = split[1]
+				res[split[0]] = strings.Trim(split[1], "\"")
 			}
 		}
 	}
@@ -193,6 +213,46 @@ func (x *QSubCommand) Execute(args []string) error {
 	}
 	// Set SGE Output Environment Variables
 	sgeEnvs := make(map[string]string)
+	blacklisted_envs := map[string]struct{}{
+		"PATH":                 struct{}{},
+		"USER":                 struct{}{},
+		"HOME":                 struct{}{},
+		"EDITOR":               struct{}{},
+		"UID":                  struct{}{},
+		"TERM":                 struct{}{},
+		"SHELL":                struct{}{},
+		"HOSTNAME":             struct{}{},
+		"GLAD":                 struct{}{},
+		"JARVICE_HEALTH_PORT":  struct{}{},
+		"JARVICE_HPC_LOGLEVEL": struct{}{},
+		"JARVICE_ID_GID":       struct{}{},
+		"JARVICE_ID_GROUP":     struct{}{},
+		"JARVICE_ID_UID":       struct{}{},
+		"JARVICE_ID_USER":      struct{}{},
+		"JARVICE_INGRESSPATH":  struct{}{},
+		"JARVICE_JOBTOKEN":     struct{}{},
+		"JARVICE_MPI_CMA":      struct{}{},
+		"JARVICE_MPI_PROVIDER": struct{}{},
+		"JARVICE_TOOLS":        struct{}{},
+		"JARVICE_TOOLS_BIN":    struct{}{},
+		"JARVICE_VAULT_NAME":   struct{}{},
+		"JOB_LABEL":            struct{}{},
+		"JOB_NAME":             struct{}{},
+		"JOB_PRIVATEIP":        struct{}{},
+		"JOB_PUBLICIP":         struct{}{},
+		"MODULEPATH":           struct{}{},
+		"MODULESHOME":          struct{}{},
+	}
+	for _, env := range os.Environ() {
+		parts := strings.Split(env, "=")
+		if len(parts) == 2 {
+			if _, ok := blacklisted_envs[parts[0]]; !ok &&
+				!strings.Contains(parts[0], "BASH_FUNC") &&
+				!strings.Contains(parts[0], "KUBERNETES_") {
+				sgeEnvs[parts[0]] = parts[1]
+			}
+		}
+	}
 	myHpcReq := jarvice.HpcReq{
 		// sudo is required to edit /etc/hosts (best effort)
 		JobEnvConfig: `join () { local IFS="$1"; shift; echo "$*"; };` +

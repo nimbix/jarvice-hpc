@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type QAcctCommand struct {

@@ -65,7 +65,7 @@ for client in `cat ${CLIENTS}`; do
     echo
     echo PACKAGING $client
     echo
-    ./install.sh --no-install --client $client --keep-cli --build --version ${VERSION}
+    ./install.sh --os ${GOOS} --no-install --client $client --keep-cli --build --version ${VERSION}
     mv ${CLI_NAME}-${client} ${WORKDIR}
     cp ${client}/${client}-cli ${WORKDIR}
     RPM_NAME="jarvice-hpc-${client}-${VERSION//v}"

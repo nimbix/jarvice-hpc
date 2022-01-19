@@ -6,7 +6,8 @@ import (
 	"os"
 
 	"github.com/jessevdk/go-flags"
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
+	logger "jarvice.io/jarvice-hpc/logger"
 )
 
 var parser = flags.NewNamedParser("jarvice", flags.PassDoubleDash|flags.IgnoreUnknown)
@@ -23,9 +24,13 @@ func main() {
 	var err error
 	args := []string{}
 	if args, err = jarvice.PreprocessArgs(os.Args); err != nil {
+		logger.ErrorPrintf("flags error: %v",
+			fmt.Errorf("PreprocessArg: %w", err))
 		goto errHandler
 	}
 	if args, err = parser.ParseArgs(args); err != nil {
+		logger.ErrorPrintf("flags error: %v",
+			fmt.Errorf("ParseArgs: %w", err))
 		goto errHandler
 	}
 	os.Exit(0)
@@ -35,25 +40,26 @@ errHandler:
 		if flagsErr.Type == flags.ErrHelp ||
 			flagsErr.Type == flags.ErrCommandRequired ||
 			flagsErr.Type == flags.ErrRequired {
+			logger.DebugPrintf("missing required flags")
 			printHelp(parser)
 			os.Exit(0)
 		} else if flagsErr.Type == flags.ErrUnknownCommand {
 			// HPC client CLI command that is not supported
-			fmt.Printf("`%v' not supported\n\n\n", args[0])
+			logger.DebugPrintf("%v not supported", args[0])
 			if parser.Command.Active != nil {
 				printHelp(parser)
 			}
 		} else if flagsErr.Type == flags.ErrMarshal {
-			fmt.Println("\n\nInvalid syntax\n\n")
+			logger.DebugPrintf("Invalid syntax")
 			printHelp(parser)
 			os.Exit(1)
 		}
-		fmt.Println(flagsErr.Error())
+		logger.DebugPrintf("unhandled flag error: %v", flagsErr.Error())
 		os.Exit(1)
 
 	default:
 		// TODO create error type to prevent printing golang errors to user
-		fmt.Println(flagsErr.Error())
+		logger.DebugPrintf("main: unhandled error: %v", flagsErr.Error())
 		os.Exit(1)
 
 	}

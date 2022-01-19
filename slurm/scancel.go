@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 
-	jarvice "jarvice.io/core"
+	jarvice "jarvice.io/jarvice-hpc/core"
 )
 
 type SCancelCommand struct {
