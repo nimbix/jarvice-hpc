@@ -63,7 +63,6 @@ func splitAtCommas(s string) []string {
 
 func parseSgeResources(resources []string) map[string]string {
 	res := map[string]string{}
-
 	for _, resource := range resources {
 		for _, flag := range splitAtCommas(resource) {
 			split := strings.Split(flag, "=")
@@ -145,8 +144,10 @@ func (x *QSubCommand) Execute(args []string) error {
 		}
 	}
 	// workaround for slice copy
-	sliceMax := len(jobScript.Args) + 10
-	x.Resources = make([]string, sliceMax, sliceMax)
+	if len(x.Resources) < 1 {
+		sliceMax := len(jobScript.Args) + 10
+		x.Resources = make([]string, sliceMax, sliceMax)
+	}
 	// parse flags from jobscript (CLI flags take precedence;override == false)
 	if jarvice.ParseJobFlags(x,
 		parser,
@@ -305,9 +306,13 @@ func (x *QSubCommand) Execute(args []string) error {
 	}
 	// Check for project
 	var jobProject *string
-	if len(x.Project) > 0 {
+	if val, ok := resources["mc_project"]; ok || len(x.Project) > 0 {
 		jobProject = new(string)
-		*jobProject = x.Project
+		if ok {
+			*jobProject = val
+		}  else {
+			*jobProject = x.Project
+		}
 	}
 
 	// CPU cores
