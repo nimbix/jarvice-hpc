@@ -56,7 +56,10 @@ errHandler:
 		}
 		logger.DebugPrintf("unhandled flag error: %v", flagsErr.Error())
 		os.Exit(1)
-
+	case *jarvice.SgeError:
+		logger.DebugPrintf("sge: %s", flagsErr.Error())
+		fmt.Println(flagsErr.Error())
+		os.Exit(1)
 	default:
 		// TODO create error type to prevent printing golang errors to user
 		logger.DebugPrintf("main: unhandled error: %v", flagsErr.Error())

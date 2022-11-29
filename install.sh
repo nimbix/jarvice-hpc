@@ -92,15 +92,16 @@ if [ "$BUILD" = true ]; then
 
     GO_BUILD_OPT="-v -o ${CLI_NAME}-${CLIENT} -a -ldflags '-extldflags -static -s -w'"
 
-    docker run -ti --rm -v "$PWD":/usr/src/jarvice-hpc \
+    docker run --rm -v "$PWD":/usr/src/jarvice-hpc \
         -w /usr/src/jarvice-hpc \
         -e GOOS=${GOOS} \
         -e CGO_ENABLED=0 \
-        golang:1.14 \
-        /bin/bash -c "go get github.com/jessevdk/go-flags \
-        && mkdir -p /go/src/jarvice.io/jarvice-hpc \
+        golang:1.19 \
+        /bin/bash -c "mkdir -p /go/src/jarvice.io/jarvice-hpc \
         && ln -s /usr/src/jarvice-hpc/core /go/src/jarvice.io/jarvice-hpc/core \
         && ln -s /usr/src/jarvice-hpc/logger /go/src/jarvice.io/jarvice-hpc/logger \
+	&& touch /usr/src/jarvice-hpc/logger/go.mod \
+	&& touch /usr/src/jarvice-hpc/core/go.mod \
         && go build $GO_BUILD_OPT $CLIENT/*.go ${DEBUG}"
 
     echo "BUILD COMPLETE"
@@ -108,6 +109,7 @@ if [ "$BUILD" = true ]; then
     for file in `ls *.go`; do
         rm -f $CLIENT/$file
     done
+    rm -f core/go.mod logger/go.mod
 else
     command -v wget &> /dev/null || (echo "wget missing" && exit 1)
 

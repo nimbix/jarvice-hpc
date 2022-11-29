@@ -45,6 +45,14 @@ const (
 
 const JarviceHpcConfigEnv = "JARVICE_HPC_CONFIG"
 
+type SgeError struct {
+	Command string
+	Err error
+}
+func (err *SgeError) Error() string {
+	return fmt.Sprintf("%s: %s", err.Command, err.Err.Error())
+}
+
 // XXX
 // Data for HPC job script
 /*
@@ -444,6 +452,10 @@ func WriteJarviceConfigTarget(target string) error {
 func ReadJarviceConfigTarget() string {
 	// Best effort (default: "default")
 	defaultTarget := "default"
+	envTarget := os.Getenv("JXE_CLUSTER")
+	if len(envTarget) > 0 {
+		return envTarget
+	}
 	configPath := path.Dir(getJarviceConfigPath())
 	filename := configPath + "/TARGET"
 	if !fileExist(filename) {

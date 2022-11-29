@@ -21,7 +21,10 @@ func (x *QConfCommand) Execute(args []string) error {
 	}
 	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return err
+		return &jarvice.SgeError {
+			Command: "qconf",
+			Err: err,
+		}
 	}
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"queues",
@@ -30,7 +33,10 @@ func (x *QConfCommand) Execute(args []string) error {
 
 		jarviceQueues := []string{}
 		if err := json.Unmarshal([]byte(resp), &jarviceQueues); err != nil {
-			return errors.New("qconf: cannot read response")
+			return &jarvice.SgeError {
+				Command: "qconf",
+				Err: errors.New("cannot read response"),
+			}
 		}
 		if len(jarviceQueues) < 1 {
 			fmt.Println("default")
@@ -39,7 +45,10 @@ func (x *QConfCommand) Execute(args []string) error {
 		}
 		return nil
 	}
-	return errors.New("qconf: HTTP error")
+	return &jarvice.SgeError {
+		Command: "qconf",
+		Err: errors.New("HTTP error"),
+	}
 }
 
 func init() {

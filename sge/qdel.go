@@ -22,7 +22,10 @@ func (x *QDelCommand) Execute(args []string) error {
 	}
 	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return err
+		return &jarvice.SgeError {
+			Command: "qdel",
+			Err: err,
+		}
 	}
 	urlValues := cluster.GetUrlCreds()
 	urlValues.Add("number", x.Args.JobNumber)
@@ -37,7 +40,10 @@ func (x *QDelCommand) Execute(args []string) error {
 
 		return nil
 	}
-	return errors.New("qdel: HTTP error")
+	return &jarvice.SgeError {
+		Command: "qdel",
+		Err: errors.New("HTTP error"),
+	}
 }
 
 func init() {

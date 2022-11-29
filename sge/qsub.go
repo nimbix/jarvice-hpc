@@ -126,14 +126,20 @@ func (x *QSubCommand) Execute(args []string) error {
 
 	// validate binary flag
 	if jarvice.IsYes(x.Binary) && jobScriptFilename == "STDIN" {
-		return errors.New("qsub: missing command")
+		return &jarvice.SgeError {
+			Command: "qsub",
+			Err: errors.New("missing command"),
+		}
 	}
 
 	var jobScript jarvice.JobScript
 
 	if len(jobScriptFilename) > 0 {
 		if val, jerr := jarvice.ParseJobScript("$", jobScriptFilename); jerr != nil {
-			return errors.New("qsub: WARNING unable to parse job script")
+			return &jarvice.SgeError {
+				Command: "qsub",
+				Err: errors.New("WARNING unable to parse job script"),
+			}
 		} else {
 			jobScript = val
 		}
@@ -165,7 +171,10 @@ func (x *QSubCommand) Execute(args []string) error {
 	// Read JARVICE config for selected cluster
 	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return errors.New("qsub: " + err.Error())
+		return &jarvice.SgeError {
+			Command: "qsub",
+			Err: err,
+		}
 	}
 	queueName := x.Queue
 	// need JARVICE API creds, 'info', and 'name' for /jarvice/queues request
@@ -178,10 +187,16 @@ func (x *QSubCommand) Execute(args []string) error {
 		cluster.Insecure,
 		urlValues); err == nil {
 		if err := json.Unmarshal(resp, &jarviceQueues); err != nil {
-			return errors.New("qsub: " + err.Error())
+			return &jarvice.SgeError {
+				Command: "qsub",
+				Err: errors.New("failed to read queues"),
+			}
 		}
 	} else {
-		return errors.New("qsub: connot find queue: " + queueName + "  " + err.Error())
+		return &jarvice.SgeError {
+			Command: "qsub",
+			Err: errors.New("cannot find queue: " + queueName + "  " + err.Error()),
+		}
 	}
 	var myQueue jarvice.JarviceQueue
 	for _, queue := range jarviceQueues {
@@ -343,8 +358,11 @@ func (x *QSubCommand) Execute(args []string) error {
 	}
 	// check if -pe request is larger than queue size
 	if nodeScale > myQueue.MachineScale {
-		return errors.New("qsub: -pe request larger than queue size (" +
-			strconv.Itoa(myQueue.MachineScale) + ")")
+		return &jarvice.SgeError {
+			Command: "qsub",
+			Err: errors.New("-pe request larger than queue size (" +
+				strconv.Itoa(myQueue.MachineScale) + ")"),
+			}
 	}
 	myMachine := jarvice.JarviceMachine{
 		Type:  myQueue.DefaultMachine,
@@ -376,7 +394,10 @@ func (x *QSubCommand) Execute(args []string) error {
 	var myJobResponse jarvice.JarviceJobResponse
 	if jobResponse, err := jarvice.JarviceSubmitJob(cluster.Endpoint,
 		cluster.Insecure, myReq); err != nil {
-		return errors.New("qsub: " + err.Error())
+		return &jarvice.SgeError {
+			Command: "qsub",
+			Err: err,
+		}
 	} else {
 		myJobResponse = jobResponse
 	}

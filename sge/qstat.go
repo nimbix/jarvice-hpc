@@ -33,7 +33,10 @@ func (x *QStatCommand) Execute(args []string) error {
 	// use Cluster option name in query
 	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return err
+		return &jarvice.SgeError {
+			Command: "qstat",
+			Err: err,
+		}
 	}
 	if resp, err := jarvice.ApiReq(cluster.Endpoint,
 		"jobs",
@@ -42,7 +45,10 @@ func (x *QStatCommand) Execute(args []string) error {
 
 		var jarviceJobs jarvice.JarviceJobs
 		if err := json.Unmarshal([]byte(resp), &jarviceJobs); err != nil {
-			return errors.New("qstat: cannot read response")
+			return &jarvice.SgeError {
+				Command: "qstat",
+				Err: errors.New("cannot read response"),
+			}
 		}
 		retTable := [][]string{
 			{"job-ID", "prior", "name", "user", "state", "submit/start at", "queue"},

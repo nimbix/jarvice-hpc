@@ -51,7 +51,10 @@ func (x *QAcctCommand) Execute(args []string) error {
 	// Read JARVICE config for selected cluster
 	cluster, err := jarvice.GetClusterConfig()
 	if err != nil {
-		return err
+		return &jarvice.SgeError {
+			Command: "qacct",
+			Err: err,
+		}
 	}
 	// need JARVICE API creds and 'completed' for /jarvice/jobs request
 	urlValues := cluster.GetUrlCreds()
@@ -62,14 +65,20 @@ func (x *QAcctCommand) Execute(args []string) error {
 		urlValues); err == nil {
 		var jarviceJobs jarvice.JarviceJobs
 		if err := json.Unmarshal(resp, &jarviceJobs); err != nil {
-			return errors.New("qacct: cannot read response")
+			return &jarvice.SgeError {
+				Command: "qacct",
+				Err: errors.New("cannot read response"),
+			}
 		}
 		for index, val := range jarviceJobs {
 			qAcctPrintJob(index, val)
 		}
 		return nil
 	}
-	return errors.New("qacct: HTTP error")
+	return &jarvice.SgeError {
+		Command: "qacct",
+		Err: errors.New("HTTP error"),
+	}
 }
 
 func init() {
