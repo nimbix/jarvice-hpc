@@ -44,10 +44,11 @@ func (x *QConfCommand) Execute(args []string) error {
 			fmt.Printf("%s\n", strings.Join(jarviceQueues, "\n"))
 		}
 		return nil
-	}
-	return &jarvice.SgeError {
-		Command: "qconf",
-		Err: errors.New("HTTP error"),
+	} else {
+		return &jarvice.SgeError {
+			Command: "qconf: HTTP error:",
+			Err: err,
+		}
 	}
 }
 
