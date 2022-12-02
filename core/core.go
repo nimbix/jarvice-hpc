@@ -354,7 +354,7 @@ func ApiReq(endpoint, api string, insecure bool,
 				logger.WarningPrintf("HTTP requests failed: %v", resp.Status)
 				respMap := map[string]string{}
 				json.Unmarshal(body, &respMap)
-				errMsg := ""
+				errMsg := fmt.Sprintf("msg body %+v\n", respMap)
 				logger.DebugObj("JarviceXE response", respMap)
 				if msg, ok := respMap["error"]; ok {
 					errMsg = msg
