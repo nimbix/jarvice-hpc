@@ -271,6 +271,13 @@ func (x *QSubCommand) Execute(args []string) error {
 		"MODULEPATH":           struct{}{},
 		"MODULESHOME":          struct{}{},
 	}
+	if val, ok := resources["mc_export"]; ok {
+		for _, env := range strings.Split(val, ",") {
+			if strings.Contains(env, "PATH") {
+				delete(blacklisted_envs, "PATH")
+			}
+		}
+	}
 	for _, env := range os.Environ() {
 		parts := strings.Split(env, "=")
 		if len(parts) == 2 {
